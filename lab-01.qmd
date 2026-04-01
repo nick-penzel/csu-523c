@@ -25,7 +25,7 @@ knitr::opts_chunk$set(
 ```
 
 ```{r}
-#| echo: false
+#| echo: true
 #| fig-align: center
 #| out-width: "100%"
 knitr::include_graphics('img/colorado-river.jpg')
@@ -64,7 +64,7 @@ author:
 Install and load the following packages. If any are missing, run `install.packages("packagename")` first:
 
 ```{r}
-#| eval: false
+#| eval: true
 if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
 library("pacman")
 
@@ -104,11 +104,11 @@ gauges <- tribble(
   ~site_no,     ~name,                           ~state,
   "09380000",   "Colorado R at Lees Ferry",      "AZ",
   "09163500",   "Colorado R near CO-UT border",  "CO",
-  "09085000",   "Colorado R at Glenwood Springs","CO",
+  "09085000",   "Roaring Fork at Glenwood Springs","CO",
   "09306500",   "White R near Watson",           "UT",
   "09379500",   "San Juan R near Bluff",         "UT",
-  "09402500",   "Little Colorado R near Cameron","AZ",
-  "09423000",   "Colorado R below Hoover Dam",   "NV"
+  "09402500",   "Colorado River near Grand Canyon","AZ",
+  "09423000",   "Colorado R near Davis Dam",   "NV"
 )
 
 raw <- readNWISdv(
@@ -116,9 +116,9 @@ raw <- readNWISdv(
   parameterCd = "00060",
   startDate   = "1980-01-01",
   endDate     = "2023-12-31"
-) |>
-  renameNWISColumns() |>              # renames X_00060_00003 → Flow
-  left_join(gauges, by = "site_no") |>
+) %>% 
+  renameNWISColumns() %>%             # renames X_00060_00003 Flow
+  left_join(gauges, by = "site_no") %>% 
   select(site_no, name, state, Date, Flow)
 
 glimpse(raw)
@@ -184,7 +184,7 @@ max_q_table <- daily_q %>% filter(Date == my.date) %>%
     Flow = "Daily Mean Flow (cfs)",
     site_no = "Gauge Number"
   ) %>% 
-  set_caption(caption = paste("Top 5 sites with highest flow,", my.date)) %>% 
+  set_caption(caption = paste("Top 5 sites with highest flow on", my.date)) %>% 
   autofit()
   
 max_q_table
@@ -199,7 +199,7 @@ max_qdelta_table <- daily_q %>% filter(Date == my.date) %>%
     flow_delta = "Dily Flow Delta (cfs)",
     site_no = "Gauge Number"
   ) %>% 
-  set_caption(caption = paste("Top 5 sites with highest daily flow increase,", my.date)) %>% 
+  set_caption(caption = paste("Top 5 sites with highest daily flow increase on", my.date)) %>% 
   autofit()
 
 max_qdelta_table
@@ -280,9 +280,9 @@ nrow(df) == nrow(daily_q)
 
 sum(is.na(df$drain_area_va)) == 0
 
-# delta should be 8 cfs
+# delta should be 10 cfs
 df %>% 
-  filter(Date == my.date, site_no == "09085000")
+  filter(Date == my.date, site_no == "09085100")
 ```
 
 Justification: I used a left join to maintain all gauge records regardless of if they had metadata and joined by site_no. Verification revealed no unexpected changes in data frame dimensions or loss of values.
@@ -327,12 +327,11 @@ df <- df %>%
 
 ```{r}
 df %>% 
-  filter(Date == my.date,
-         site_no %in% c("09380000", "09163500", "09085000", 
-                        "09306500", "09379500", "09402500")) %>% 
+  filter(Date == my.date) %>% 
   select(name, Flow, flow_per_sqmi, drain_area_va) %>% 
   mutate(raw_rank = rank(-Flow),
-         norm_rank = rank(-flow_per_sqmi)) %>% 
+         norm_rank = rank(-flow_per_sqmi),
+         flow_per_sqmi =  round(flow_per_sqmi, digits = 4)) %>% 
   arrange(raw_rank) %>% 
   flextable() %>% 
   set_header_labels(
@@ -346,12 +345,12 @@ df %>%
   set_caption(caption = paste("Area normalized discharge on", my.date)) %>% 
   autofit()
   
-#   need to come back and asnwere part c 
+
 ```
 
 **c.** Answer in 2–3 sentences: (1) do the raw and normalized rankings differ, and if so, which gauge changes most dramatically? (2) Why does per-area normalization matter for comparing gauges in the Colorado Basin? (3) Name one analysis where you would use raw discharge and one where you would use normalized discharge.
 
-> ...
+The ranks differ because some of the gauges in this analysis are downstream of others and have much larger drainage area, so more discharge is expected on these lower, higher order sites. The Roaring Fork River has the largest rank change between raw flow and normalized flow, which is because it is a mountainous headwater of the system that receives higher precipitation per unit area. Raw discharge is suitable for analyzing interstate government compliance, like CRC obligations at Lees Ferry, while normalized discharge is useful for analysis comparing sub basins with different areas.
 
 ------------------------------------------------------------------------
 
@@ -376,7 +375,7 @@ df <- df %>%
 
 ```{r}
 q_threshold <- df %>% 
-  filter(year(Date) >= 1980 & year(Date) <= 2010) %>% 
+  filter(year(Date) >= 1980 & year(Date) <= 2010) %>% #threshold date range
   group_by(site_no) %>% 
   summarise(q10 = quantile(Flow, probs = 0.10, na.rm = TRUE))
 
@@ -386,6 +385,9 @@ df <- df %>%
 
 sum(is.na(df$q10)) == 0
 
+# delta should be 8 cfs
+df %>% 
+  filter(Date == my.date, site_no == "09085000")
 ```
 
 **c.** Add a logical column `below_threshold` that is `TRUE` when the 7-day rolling mean is below the gauge's 10th percentile threshold.
@@ -396,15 +398,20 @@ df <- df %>%
 
 df %>% 
   count(below_threshold)
+
 ```
 
 **d.** For **Lees Ferry** (site `09380000`) — the Compact's primary accounting point — plot the 7-day rolling mean from 2000–2023 using `ggplot`. Shade periods below threshold in red and add a dashed horizontal reference line at the threshold.
 
 ```{r}
+# get threshold value for Lees Ferry
+
 lees_threshold <- q_threshold %>% 
   filter(site_no == "09380000") %>% 
   pull(q10) %>% 
   unname()
+
+# create below perdiod for visualizaiton
 
 below_periods <- df %>%
   filter(site_no == "09380000",
@@ -430,6 +437,8 @@ df %>%
 
 **e.** How many days per year, on average, did Lees Ferry fall below its low-flow threshold in **2000–2010** vs. **2011–2023**? Produce a small summary table and answer in 2–3 sentences: (1) did below-threshold days increase or decrease? (2) Is this a shift in isolated dry years or a persistent baseline change? (3) What does this imply for Compact delivery obligations?
 
+The number of days below the threshold decreased from 36.6 to 27.5 in the 2011-2023 period. The change looks to be mainly due to the severe drought surrounding between 2000-2005, which had high consistent days below the threshold. While the later period didn't have a drought that continuous, 2023 was the year with the most days below the threshold from 2000-2023, indicating that the severity of shortages may be increasing. These data suggest that the upper basin is struggling to meet CRC requirements during drought years, if a shortage with the severity of 2023 and the consistency of the \~2002 drought occurs, the upper basin will likely be badly out of compliance with the CRC.
+
 ::: callout-tip
 `n_distinct(year(Date))` counts unique years in a group — useful for computing per-year averages across a multi-year period.
 :::
@@ -438,21 +447,24 @@ df %>%
 thresh_comp <-  df %>% 
   filter(year(Date) >= 2000 & year(Date) <= 2023,
          site_no == "09380000") %>% 
-  mutate(period = if_else(year(Date) <= 2010, "2000_2010", "2011_2023")) %>%
-  group_by(period, year(Date)) %>%
+  mutate(period = if_else(year(Date) <= 2010, "2000_2010", "2011_2023"),
+         year = year(Date)) %>%
+  group_by(period, year) %>%
   summarise(days_below = sum(below_threshold, na.rm = TRUE)) %>%
   ungroup() %>% 
   group_by(period) %>%
-  summarise(avg_days_below = mean(days_below))
+  summarise(avg_days_below = round(mean(days_below), 1),
+            n_years = n_distinct(year))
 
 flextable(thresh_comp) %>% 
   set_header_labels(
     period = "Period",
-    avg_days_below = "Days"
+    avg_days_below = "Days",
+    n_years = "Years in period"
   ) %>% 
   set_caption(caption = "Avg. annual days below Q10 threshold") %>% 
   autofit()
-# need to write out part e. 
+
 ```
 
 > ...
@@ -473,16 +485,22 @@ Use `if_else()` to set `water_year` for Oct–Dec months.
 
 ```{r}
 df <- df %>% 
-  mutate(water_year = calcWaterYear(Date))
+  mutate(water_year = calcWaterYear(Date)) #used the dataRetrival function
+
+# print(df %>% 
+#   group_by(site_no, name, water_year) %>% 
+#   summarise(sum_na = sum(is.na(Flow))), n = 400)
 
 year_df <- df %>% 
   group_by(site_no, name, water_year) %>% 
   summarise(
     annual_q = sum(Flow),
     peak_q = max(Flow),
-    days_below_threshhold = sum(below_threshold)
+    days_below_threshhold = sum(below_threshold, na.rm = TRUE)
   ) %>% 
   ungroup()
+
+glimpse(year_df)
 ```
 
 **c.** Plot **total annual discharge at Lees Ferry** by water year (1980–2023) as a bar chart. Color bars above the long-term median blue and bars below it red. Add a dashed horizontal reference line at the median.
@@ -492,16 +510,17 @@ Hint: compute the long-term median and color bars by whether each year's total i
 :::
 
 ```{r}
-lees_median <- year_df %>%
+# compute long term median
+lees_median <- year_df %>% 
   filter(site_no == "09380000",
          water_year >= 1980 & water_year <= 2023) %>%
   pull(annual_q) %>%
-  median(na.rm = TRUE)
+  median(na.rm = TRUE) #Removing NAs just in case, but Lees data should be complete for this period 
   
 year_df %>% 
   filter(site_no == "09380000",
            water_year >= 1980 & water_year <= 2023) %>% 
-  ggplot(aes(x = water_year, y = annual_q, fill = annual_q >= lees_median))+
+  ggplot(aes(x = water_year, y = annual_q, fill = annual_q >= lees_median))+ #creat a logical vector to map colors onto
     geom_col()+
     geom_hline(yintercept = lees_median, 
                color = "red", linetype = "dashed")+
@@ -521,6 +540,8 @@ year_df %>%
 
 In 2–3 sentences: (1) describe the direction and approximate timing of any structural shift in the record, (2) identify one year that stands out as an exception to the dominant pattern and what you know about its cause, and (3) explain what this pattern means for Compact water accounting.
 
+> The records suggests that periods of high runoff may be decreasing over time. The graph shows several anomalous peaks in the 80s and late 90s, in particular the peak around 1983-84 is related to a massive snow year and the near total failure of Glen Canyon Dam which caused high flows at Lees Ferry. This trend is troubling, as historically high flow periods allowed Lake Powell to recharge and bank water for CRC compliance in low years; less high flow years will contribute to the depleation of reservoir levels as well as impact the 10 year 7.5 million AF average used for compact accounting.
+>
 > ...
 
 ------------------------------------------------------------------------
@@ -542,7 +563,29 @@ Hint: summarize baseline mean and SD per gauge (1980–2010), join those stats t
 :::
 
 ```{r}
+baseline <- year_df %>% 
+  filter(water_year >= 1980 & water_year <= 2010) %>% 
+  group_by(site_no) %>% 
+  summarise(
+    baseline_sd = sd(annual_q),
+    baseline_mean = mean(annual_q)
+  )
+  
+glimpse(baseline)
 
+# left joing to maintain all yearly flow data
+annual <- year_df %>% 
+  left_join(baseline, by = "site_no")
+
+# no unexpected NAs
+sum(is.na(annual$baseline_sd)) == 0   
+sum(is.na(annual$baseline_mean)) == 0
+
+# no unexpected growth 
+nrow(annual) == nrow(year_df)
+
+annual <- annual %>% 
+  mutate(std_anomaly = (annual_q - baseline_mean) / baseline_sd)
 ```
 
 **b.** Visualize as a **heatmap**: water year on x, gauge name on y, fill = standardized anomaly. Use a diverging color scale centered at zero (blue = above average, red = below average).
@@ -552,11 +595,31 @@ Hint: summarize baseline mean and SD per gauge (1980–2010), join those stats t
 :::
 
 ```{r}
-
+annual %>%
+  filter(water_year != 2024) %>% #2024 not a complete water year
+  ggplot(aes(x = water_year, y = str_wrap(factor(name), width = 15), fill = std_anomaly)) +
+  geom_tile() +
+  scale_fill_distiller(
+    palette = "RdBu",
+    direction = 1,        
+    oob = scales::squish,            
+  ) +
+  labs(
+    title = "Standardized Annual Discharge Anomalies",
+    x = "Water Year",
+    y = NULL,
+    fill = "Std. Anomaly"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank()
+  )
 ```
 
 **c.** In 3–4 sentences: (1) describe whether the post-2000 drought signal appears across all gauges or only some, (2) identify two specific years that appear as basin-wide anomalies — one dry, one wet — and name the climate event that caused each, and (3) explain what simultaneous basin-wide anomalies tell you that a single-gauge record cannot.
 
+> The post 2000 drought signal is largely absent for all gauges below Lake Powell, which makes sense as the reservoir used banked water to continue lower basin deliveries. The wet years around 1983 are evident across the basin caused by the abnormally large snow year in the winter of 82-83 and. In the Post 2020 drought, we see the drought signal more evenly across the basin because there was not an antecedent wet period allowing high reservoir levels like in the post 2000 drought that could mitigate lower basin shortages. Basin-wide anomalies allow a better picture of the entire basin's response to shortages, and show how hydrologic conditions have varied impacts geographically.
+>
 > ...
 
 ------------------------------------------------------------------------
@@ -579,6 +642,34 @@ Note: mapping can use `map_data("state")`; if `map_data()` is not available inst
 
 ```{r}
 
+site_meta_loc <- site_meta %>% 
+  select(site_no, dec_lat_va, dec_long_va)
+
+annual_loc <- annual %>% 
+  left_join(site_meta_loc, by = "site_no")
+
+# check left join outputs 
+
+nrow(annual_loc) == nrow(annual)
+
+sum(is.na(annual_loc$dec_lat_va)) == 0 
+sum(is.na(annual_loc$dec_long_va)) == 0 
+
+# days below threshold should be 72
+
+annual_loc %>% 
+  filter(site_no == "09402000",
+         water_year == "1993")
+
+# compute weighted annual means
+
+annual_loc <- annual_loc %>% 
+  group_by(water_year) %>% 
+  mutate(weighted_long = sum(dec_long_va * annual_q, na.rm = TRUE) / 
+         sum(annual_q, na.rm = TRUE),
+         weighted_lat = sum(dec_lat_va * annual_q, na.rm = TRUE) / 
+         sum(annual_q, na.rm = TRUE)) %>% 
+  ungroup()
 ```
 
 **b.** Create a two-panel figure using `patchwork`:
@@ -593,12 +684,62 @@ If you haven't seen patchwork before, it allows you to combine multiple ggplots 
 :::
 
 ```{r}
+pacman::p_load(patchwork, maps)
 
+centroids <- annual_loc %>%
+ distinct(weighted_long, weighted_lat, water_year)
+
+western_states <- map_data("state") %>%
+  filter(region %in% c("arizona", "utah")) #, "colorado", "nevada",
+                       # "new mexico", "california", "wyoming", "idaho"))
+
+map <- ggplot() +
+  geom_polygon(data = western_states,
+               aes(x = long, y = lat, group = group),
+               fill = "grey95", color = "black") +
+  geom_point(data = centroids,
+             aes(x = weighted_long, y = weighted_lat, color = water_year),
+             size = 1, ) +
+  geom_path(data = centroids,
+            aes(x = weighted_long, y = weighted_lat, color = water_year),
+            linewidth = 0.5, alpha = .3) +
+  scale_color_gradient(low = "blue", high = "red", name = "Water Year") +
+  coord_sf(xlim = c(-114, -109), ylim = c(36, 39))+
+  # coord_fixed()+
+  labs(title = "Flow-Weighted Basin Centroid",
+       x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text = element_blank())
+
+map
+
+lat <- centroids %>% 
+  ggplot(aes(x = water_year, y = weighted_lat)) +
+  geom_line() +
+  geom_point(aes(color = water_year), size = 2) +
+  geom_smooth(method = "lm", color = "black", linetype = "dashed") +
+  scale_color_gradient(low = "blue", high = "red", guide = "none") +
+  labs(title = "Weighted Mean Lat.",
+       subtitle = "with linear trendline",
+       x = "Water Year",
+       y = "Lat. (deg. N)") +
+  theme_classic()
+
+lat
+
+lat + map +
+  plot_annotation(
+    title = "Colorado River Basin Flow-Weighted Centroid (1980–2023)",
+    subtitle = "Shift reflects which sub-basins are contributing disproportionate flow"
+  )
 ```
 
 **c.** Your latitude time series should show two years where the weighted center spikes dramatically northward. Identify those two years and explain: (1) what climate event caused each spike, (2) what they have in common physically, and (3) what the long-term upward trend in weighted latitude suggests about which part of the basin is becoming proportionally more important to total flow — and why that matters for water managers downstream.
 
 > ...
+>
+> The two years with a northward spike were 1994 and 2023. In both of these years, the headwaters had strong snow years relative to precipitation in the lower basin. El Nino events for both years helped fuel the higher headwaters snow pack for the Colorado Basin. Trends northward in weighted flow indicate that headwaters states are becoming critical regional water supply areas and means that downstream managers have a vested interest in how upper basin states manage their waters.
 
 ------------------------------------------------------------------------
 
@@ -629,13 +770,28 @@ data |> mutate(
 :::
 
 ```{r}
-
+df <- df %>% 
+  mutate(
+    month = month(Date),
+    season = case_when(
+      month >= 4 & month <= 6  ~ 'Snowmelt',
+      month >= 7 & month <= 9 ~ 'Monsoon',
+      month >= 10 & month <= 12 ~ 'Low-flow', 
+      month >= 1 & month <= 3 ~ 'Winter'
+    ), 
+    season = factor(season, levels = c(c('Snowmelt', 'Monsoon', 'Low-flow', 'Winter')))
+  ) 
 ```
 
 **b.** Group by gauge, water year, and season. Summarize total seasonal discharge and normalized runoff per group.
 
 ```{r}
-
+seasonal_df <- df %>% 
+  group_by(site_no, water_year, season) %>% 
+  summarise(
+    seasonal_q = sum(Flow, na.rm = TRUE),
+    norm_seasonal_q = sum(flow_per_sqmi, na.rm = TRUE)
+  )
 ```
 
 **c.** For each gauge and water year, identify the **date of peak 7-day mean flow** and convert it to day-of-year. Plot peak day-of-year vs. water year for **Lees Ferry** with a linear trend line.
@@ -645,11 +801,41 @@ data |> mutate(
 :::
 
 ```{r}
+lees_code = "09380000"
 
+df %>% 
+  group_by(site_no, water_year) %>% 
+  slice_max(rollmean_7day, n = 1, with_ties = FALSE) %>% 
+  mutate(yday = lubridate::yday(Date)) %>% 
+  filter(site_no == lees_code) %>% 
+    ggplot(aes(x = water_year, y = yday, color = yday))+
+    geom_point()+ 
+    geom_line()+
+    geom_smooth(method = "lm", linetype = "dashed", color = "black")+
+    labs(
+      x = "Water Year",
+      y = "Day of year of peak flow",
+      title = "Peak flow timing at Lees Ferry",
+      subtitle = "Peak flow determined from a 7 day rolling mean",
+      color = "Day of Year"
+    )+
+  scale_color_gradient(low = "blue", high = "red")+
+  theme_classic()
+
+df_timing <- df %>% 
+  group_by(site_no, water_year) %>% 
+  slice_max(rollmean_7day, n = 1, with_ties = FALSE) %>% 
+  mutate(yday = lubridate::yday(Date)) %>% 
+  filter(site_no == lees_code)
+
+mod_timing <- lm(yday ~ water_year, data = df_timing)
+summary(mod_timing)
 ```
 
 **d.** In 2–3 sentences: (1) describe the direction and magnitude of the peak timing trend, (2) is it statistically visible or buried in noise? (3) What would a two-week earlier peak timing mean operationally for reservoir managers trying to capture spring runoff before it passes downstream?
 
+> The general trend shows that peak runoff is becoming later in the year at Lees Ferry, however, there is no statistically significant relationship with these data (linear model p-value = 0.122) which is likely due to the gauge being below Powell and having varied and unnatural releases hiding a true signal in noise. An earlier timing would mean that managers would need to have reservoir levels lowered earlier to be ready to capture spring runoff (only if the reservoir actually operates close to capacity).
+>
 > ...
 
 ------------------------------------------------------------------------
@@ -678,7 +864,40 @@ This is your fourth join. **Always verify**: the final dataset should have \~44 
 :::
 
 ```{r}
+annual_lees <- annual %>% 
+  filter(site_no == lees_code) %>% 
+  rename(lees_flow = annual_q)
 
+glenwood_code = "09085000"
+
+annual_gwood <- annual %>% 
+  filter(site_no == glenwood_code) %>% 
+  rename(gwood_flow = annual_q)
+
+lees_dom_season <- seasonal_df %>% 
+  filter(site_no == lees_code) %>% 
+  group_by(water_year) %>% 
+  slice_max(seasonal_q, n = 1)
+
+lees_model_df <- annual_lees %>% 
+  left_join(annual_gwood, by = "water_year") %>% 
+  left_join(lees_dom_season, by = "water_year") %>% 
+  select(water_year, lees_flow, gwood_flow, season) %>% 
+  filter(water_year <= 2023) %>% 
+  mutate(log_lees = log10(lees_flow),
+         log_gwood = log10(gwood_flow))
+
+# join checks 
+
+if (sum(is.na(lees_model_df$log_gwood)) == 0 &&
+  sum(is.na(lees_model_df$log_lees)) == 0  &&
+  nrow(lees_model_df) == 44){
+  print("No unexpected join behavoir")
+} else {
+  warning("Join check failed")
+}
+
+unique(lees_model_df$season)
 ```
 
 ## Model Building
@@ -686,13 +905,12 @@ This is your fourth join. **Always verify**: the final dataset should have \~44 
 **b.** Fit a linear model predicting `log_lees` from `log_glenwood`, `season`, and their interaction, If you haven't seen linear modeling in R, we will cover it in more detail latter in this course, but, the syntax is straightforward: `lm(response ~ predictor1 * predictor2, data = mydata)` fits a model with main effects and an interaction term. The interaction (`*`) allows the relationship between Glenwood and Lees to differ by season while a model without interaction (`lm(log_lees ~ log_glenwood + season)`) would assume the same Glenwood-Lees relationship in every season.
 
 ```{r}
-#| eval: false
-mod <- lm(log_lees ~ log_glenwood * season, data = lees_model_data)
+
+mod <- lm(log_lees ~ log_gwood * season, data = lees_model_df)
 summary(mod)
 ```
 
-```{r}
-
+```         
 ```
 
 **c.** In 3–4 sentences: (1) report the R² and state whether the overall model is statistically significant, (2) interpret the `log_glenwood` coefficient as an elasticity — what does it mean physically that the coefficient is greater than 1? (3) describe what the significant negative interaction terms tell you about the upstream-downstream relationship outside of Snowmelt season.
@@ -702,6 +920,8 @@ In a log-log model, the coefficient on `log_glenwood` is an **elasticity**: a co
 :::
 
 > ...
+>
+> The log-log linear model predicting flow at Lees Ferry from the Roaring Fork River has a adjusted R\^2 of .66 and shows a statistically significant relationship (p value = 4.114e-08). The log_glenwood coefficient of 1.80 indicates that a 1% increase in flow at Glenwood equates to a 1.8% increase in flow at Lees Ferry. This relationship represents the snow melt season, and makes sense given how the Roaring Fork discharge is likely correlated to other head water rivers during this season and we would expect the discharge to be amplified as snow melt accumulates. The negative coefficients tell us that the relationship between the two sites decouples for the other seasons outside of the snow melt season (the effective elasticity ranges from .58 - .03) . Outside of runoff, other factors like diversions and monsoons contribute to the hydrograph, and the Roaring Fork is largely unable to capture these factors.
 
 ------------------------------------------------------------------------
 
@@ -712,8 +932,8 @@ A model that fits well on average can still fail in predictable ways. Two core a
 **a.** Use `broom::augment()` to produce a tidy data frame of predictions and residuals alongside the original data:
 
 ```{r}
-#| eval: false
-aug <- augment(mod, data = lees_model_data)
+
+aug <- broom::augment(mod, data = lees_model_df)
 ```
 
 ::: callout-tip
@@ -729,7 +949,9 @@ Together these make model results as pipeable as any other data frame — straig
 :::
 
 ```{r}
+broom::glance(mod)
 
+broom::tidy(mod)
 ```
 
 **b.** Create a **predicted vs. actual scatter plot**. Add a dashed 1:1 reference line (perfect prediction). Color points by `season`. Identify any point that sits noticeably off the line.
@@ -739,18 +961,68 @@ Together these make model results as pipeable as any other data frame — straig
 :::
 
 ```{r}
+aug %>% 
+  ggplot(aes(y = log_lees, x = .fitted, color = season))+
+  geom_point()+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed")+
+  labs(
+    y = "Log transformed flow at Lees Ferry",
+    x = "Model Predictions",
+    title = "Predicted vs. Actual Flow at Lees Ferry",
+    color = "Season"
+  )+
+  theme_classic()
 
 ```
 
 **c.** Plot a **histogram of the residuals** with a vertical dashed line at zero.
 
 ```{r}
+res_hist <- aug %>% 
+  ggplot(aes(x = .resid))+
+  geom_histogram(alpha = .5)+
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_minimal()+
+  labs(
+    x = "Model residuals",
+    title = "Residual Distribution"
+  )
 
+qq_plot <- aug %>% 
+  ggplot(aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line(color = "red", linetype = "dashed") +
+  labs(
+    title = "Normal Q-Q Plot of Residuals",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+
+res_hist + qq_plot +
+plot_annotation(title = "Lees Ferry linear model fit")
+
+aug %>% 
+  mutate(.resid = sqrt(.resid^2)) %>% 
+  slice_max(.resid)
+
+aug %>% 
+  mutate(
+  fitted_cfs = 10^.fitted,
+  actual_cfs = 10^log_lees
+  ) %>% 
+  summarise(RMSE = sqrt(mean((actual_cfs - fitted_cfs)^2)),
+            mean_lees = mean(actual_cfs),
+            percent = (RMSE / mean_lees)* 100)
+
+# outlier in 1983 
 ```
 
 **d.** In 3–4 sentences: (1) identify the outlier water year visible in your scatter plot. Which year is it and why did the model fail to predict it? (2) Do the residuals appear approximately normal, or is there a tail that concerns you? (3) Name two additional predictors that would most improve this model and explain the physical mechanism behind each.
 
 > ...
+>
+> The outlier water year is 1983, which was associated with one of the strongest El Nino events on records as well as the near overtopping of Glen Canyon Dam which caused the Dam to release at or near full capacity for much of the summer. The model fails to predict this year well because the historic snowfall across the basin drastically compounded flow and engineering constraints of the dam governed dowstream discharge. The residuals are not normally distributed, as clearly seen in the histogram and QQ plot, which indicates that the assumptions for model appropriateness may not be met. Additional predictors to include would be other gauges that may better represent flow relationships lower in the upper basin like the San Juan Gauge, and specifically gauges that may include a stronger monsoon signal. Another option could be to include direct precipitation data through a meteorological model and use that as a variable for predicting Lees Flow was well, as that will address the seasonal decoupling we see in our basic model outside of the snowmelt season.
 
 ------------------------------------------------------------------------
 
