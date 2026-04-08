@@ -225,7 +225,7 @@ Before writing a single `_join()` call, answer three questions:
 ## The (main) four joins — and when to use each
 
 | Function | Keeps rows from... | Non-matching rows |
-|------------------------|------------------------|------------------------|
+|----|----|----|
 | `left_join(x, y)` | All of `x` | `y` columns filled with `NA` |
 | `right_join(x, y)` | All of `y` | `x` columns filled with `NA` |
 | `inner_join(x, y)` | Only rows matching in **both** | Dropped entirely |
