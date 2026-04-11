@@ -1008,7 +1008,7 @@ mechanics are now yours.
 # Rubric
 
 | Question | Topic | Points |
-|-----------------------------|---------------------|-----------------------|
+|----|----|----|
 | Q1 | Build spatial dataset — 3 sources, correct CRS, verification | 25 |
 | Q2 | Distance calculations — 4 distances, correct geometry types, flextables | 35 |
 | Q3 | Mapping — 4 maps, gghighlight, ggrepel, written interpretations | 20 |
