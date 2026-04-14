@@ -919,7 +919,7 @@ comparisons.
 library(patchwork)
 
 voroni_plot + triangle_plot + square_plot + hex_plot + counties_plot +
-  plot_layout(ncol = 2)
+  plot_layout(ncol = 2) 
 ```
 
 ------------------------------------------------------------------------
@@ -974,7 +974,7 @@ knitr::kable(nid_classifier,
     of dam purposes:
 
 ```{r, echo = TRUE, eval = TRUE}
-unique(dams2$PURPOSES) %>% length()
+unique(dams2$purposes) %>% length()
 ```
 
 -   By storing dam codes as a concatenated string, there is no easy way
@@ -993,7 +993,7 @@ serve:
 #| echo: false
 #| eval: false
 # create a vector of all characters in your purpose and unlist 
-dam_freq <- strsplit(dams2$PURPOSES, split = "") %>%
+dam_freq <- strsplit(dams2$purposes, split = "")%>%
   unlist() %>% 
   table() %>% 
   as.data.frame() %>% 
@@ -1038,8 +1038,8 @@ For example:
 #| echo: true
 #| eval: true
 # Find flood control dams in the first 5 records:
-dams2$PURPOSES[1:5]
-grepl("F", dams2$PURPOSES[1:5])
+dams2$purposes[1:5]
+grepl("S", dams2$purposes[1:5])
 ```
 
 ------------------------------------------------------------------------
@@ -1053,6 +1053,22 @@ across your **cropped tessellation from Q1.4** (e.g., `hexagon_clipped`
 or `square_clipped`).
 
 ```{r}
+supply_subset <- dams2 %>% 
+    filter(grepl("Water Supply", dams2$purposes) == TRUE) %>% 
+  point_in_polygon(hex_trim, "id")
+
+
+rec_subset <- dams2 %>% 
+  filter(grepl("Recreation", dams2$purposes) == TRUE) %>% 
+    point_in_polygon(hex_trim, "id")
+
+fire_subset <-   dams2 %>% 
+    filter(grepl("Fire Protection", dams2$purposes) == TRUE) %>% 
+    point_in_polygon(hex_trim, "id")
+
+fish_subset <- dams2 %>% 
+    filter(grepl("Fish and Wildlife", dams2$purposes) == TRUE) %>% 
+    point_in_polygon(hex_trim, "id")
 
 ```
 
@@ -1072,6 +1088,27 @@ or `square_clipped`).
     country with the most
 
 ```{r}
+
+supply_subset %>% 
+  pip_plot("Dams with a Supply Purpose")+
+  gghighlight(n > mean(n) + sd(n)) +
+  labs(caption = "Tiles where the dam count is greater then the (mean + 1 standard deviation) are highlighted")
+
+rec_subset %>% 
+  pip_plot("Dams with a Recreation Purpose")+
+  gghighlight(n > mean(n) + sd(n)) +
+  labs(caption = "Tiles where the dam count is greater then the (mean + 1 standard deviation) are highlighted")
+
+fire_subset %>% 
+  pip_plot("Dams with a Fire Supression Purpose")+
+  gghighlight(n > mean(n) + sd(n)) +
+  labs(caption = "Tiles where the dam count is greater then the (mean + 1 standard deviation are highlighted")
+
+
+fish_subset %>% 
+  pip_plot("Dams with a Fish and Wildlife Purpose")+
+  gghighlight(n > mean(n) + sd(n)) +
+  labs(caption = "Tiles where the dam count is greater then the (mean + 1 standard deviation are highlighted")
 
 ```
 
@@ -1153,6 +1190,42 @@ dams?
 
 ```{r}
 
+dam_attr <- hex_trim %>% 
+  st_join(dams2) %>% 
+  st_drop_geometry() %>% 
+  group_by(id) %>% 
+  summarise(
+    n_dams = sum(!is.na(nid_id)),
+    mean_year_completed = mean(year_completed, na.rm = TRUE),
+    mean_surface_area = mean(surface_area_acres, na.rm = TRUE)
+  ) %>% 
+  right_join(hex_trim, by = "id") %>% 
+  replace_na(list(
+    mean_year_completed = NA,
+    mean_surface_area   = NA
+  )) %>%
+  st_as_sf()
+
+attr_plot <- function(sf_obj, title, attr) {
+  plot <- ggplot(data = sf_obj)+
+            geom_sf(aes(fill = log10({{attr}}+1)))+
+            scale_fill_viridis_c()+
+            theme_void()+
+            labs(title = title)+
+            theme(plot.background = element_rect(colour = "navy", fill = NA, linewidth = 2),
+                  plot.margin = margin(t = 0.5, r = 0.5, b = 0.5, l = 0.5, unit = "cm"),
+                  plot.title = element_text(hjust = .5, size = 13, color = "navy"),
+                  legend.title = element_text(size = 9))
+  return(plot)
+}
+
+
+attr_plot(dam_attr, "Dam Count by Tile", attr = n_dams)
+
+attr_plot(dam_attr, "Mean Dam Age by Tile", attr = mean_year_completed)
+
+attr_plot(dam_attr, "Mean Surface Area by Tile", attr = mean_surface_area)
+
 ```
 
 ### Step 5.2
@@ -1208,8 +1281,179 @@ exist.
 ```
 
 ```{r}
+library(ape)
 
+
+# vectors of attr
+# No NAs
+counts_vec <- dam_attr$n_dams
+
+# have NAs
+age_vec <- dam_attr$mean_year_completed
+size_vec <- dam_attr$mean_surface_area
+
+# Impute mean
+
+impute_mean <- function(x) {
+  x[is.na(x)] <- mean(x, na.rm = TRUE)
+  x
+}
+
+age_imputed  <- impute_mean(age_vec)
+size_imputed <- impute_mean(size_vec)
+
+# real obs mask 
+age_obs  <- !is.na(age_vec)
+size_obs <- !is.na(size_vec)
+
+# create a W matrix 
+
+make_W <- function(tesselation) {
+  W <- st_touches(tesselation, sparse = FALSE) * 1
+  diag(W) <- 0
+  rs <- rowSums(W)
+  W <- W / ifelse(rs == 0, 1, rs)
+  W[!is.finite(W)] <- 0
+  W
+}
+
+hex_W <- make_W(hex_trim)
+
+# logic check hex tess has 2308 cells 
+
+nrow(hex_W) == 2308
+
+# compute lags 
+
+lag_count <- as.numeric(hex_W %*% counts_vec)
+lag_age   <- as.numeric(hex_W %*% age_imputed)
+lag_size  <- as.numeric(hex_W %*% size_imputed)
+
+# compute corr
+
+cor_count <- cor(counts_vec, lag_count)
+
+lag_cor <- function(attr_vec, attr_lag, obs_mask) {
+  cor(attr_vec[obs_mask], attr_lag[obs_mask])
+}
+
+cor_age   <- lag_cor(age_vec,   lag_age,   age_obs)
+cor_size  <- lag_cor(size_vec,  lag_size,  size_obs)
+
+# compute Moran's I
+
+count_m <- ape::Moran.I(counts_vec, hex_W)
+
+count_m$p.value
+
+age_m <- ape::Moran.I(age_vec, hex_W, na.rm = TRUE)
+
+age_m$p.value
+
+size_m <- ape::Moran.I(size_vec, hex_W, na.rm = TRUE)
+
+as.numeric(size_m$p.value)
+
+
+corr_df <- data.frame(matrix(c(
+'Count' , round(cor_count, 2), "High", "0",
+'Age' , round(cor_age, 2), "Medium", "0",
+'Size' , round(cor_size, 2), 'Low', "0.83"),
+ncol = 4, byrow = T)) %>% 
+  setNames(c("attr", "cor", "qual_cor", "m_pvalue"))
+
+hexagon_spatial <- flextable(corr_df) %>% 
+  set_header_labels(
+    attr = "Dam attribute",
+    cor = "Spatial lag correlation",
+    qual_cor = "Correlation level",
+    m_pvalue = "Moran's I p-value"
+  ) %>% 
+  set_caption(caption = "Spatial Correlation of Dam Attributes by Hexagon") %>% 
+  autofit()
 ```
+
+Turn workflow into a function
+
+```{r}
+
+# disclaimer, I used Claude Sonnet 4.6 to transform my workflow above into a function
+
+analyze_spatial_autocorr <- function(tessellation, dam_attr, tess_name = "Tessellation") {
+  
+  counts_vec   <- dam_attr$n_dams
+  age_vec      <- dam_attr$mean_year_completed
+  size_vec     <- dam_attr$mean_surface_area
+  
+  impute_mean <- function(x) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+    x
+  }
+  
+  age_imputed  <- impute_mean(age_vec)
+  size_imputed <- impute_mean(size_vec)
+  
+  age_obs  <- !is.na(age_vec)
+  size_obs <- !is.na(size_vec)
+  
+  W <- st_touches(tessellation, sparse = FALSE) * 1
+  diag(W) <- 0
+  rs <- rowSums(W)
+  W <- W / ifelse(rs == 0, 1, rs)
+  W[!is.finite(W)] <- 0
+  
+  lag_count <- as.numeric(W %*% counts_vec)
+  lag_age   <- as.numeric(W %*% age_imputed)
+  lag_size  <- as.numeric(W %*% size_imputed)
+  
+  # Correlations 
+  lag_cor <- function(attr_vec, attr_lag, obs_mask) {
+    cor(attr_vec[obs_mask], attr_lag[obs_mask], use = "complete.obs")
+  }
+  
+  cor_count <- cor(counts_vec, lag_count, use = "complete.obs")
+  cor_age   <- lag_cor(age_vec,  lag_age,  age_obs)
+  cor_size  <- lag_cor(size_vec, lag_size, size_obs)
+  
+  # Moran's I 
+  count_m <- ape::Moran.I(counts_vec, W)
+  age_m   <- ape::Moran.I(age_vec,   W, na.rm = TRUE)
+  size_m  <- ape::Moran.I(size_vec,  W, na.rm = TRUE)
+  
+  # Classify correlation strength
+  classify_cor <- function(r) {
+    abs_r <- abs(r)
+    case_when(
+      abs_r >= 0.75 ~ "High",
+      abs_r >= 0.50 ~ "Moderate",
+      abs_r >= 0.25 ~ "Low",
+      abs_r >= 0.00 ~"Negligable"
+    )
+  }
+  
+  # 9. Build and return results table
+  results_table <- data.frame(
+    tessellation = tess_name,
+    attr         = c("Count", "Age", "Size"),
+    cor          = round(c(cor_count, cor_age, cor_size), 2),
+    qual_cor     = classify_cor(c(cor_count, cor_age, cor_size)),
+    moran_I      = round(c(count_m$observed, age_m$observed, size_m$observed), 3),
+    m_pvalue     = round(c(count_m$p.value,  age_m$p.value,  size_m$p.value),  3)
+  )
+  
+  return(results_table)
+}
+```
+
+The correlation between the observed value and the spatial lag shows
+that the number of dams per cell is high correlated to its neighboring
+cells, and age is slightly less correlated. This makes sense, dam
+denisty is a function of local water resources, which are often
+spatially clustered along rivers or within watersheds and the age of
+development would similarly be clustered and relate to the overall time
+the area was developed. Size has low spatial correlation due to the fact
+that size is a function of complex social and hydrologic constraints
+which do not spatially cluster.
 
 ### Step 5.3
 
@@ -1255,8 +1499,98 @@ use `as.vector()` explicitly.
 ```
 
 ```{r}
+lag_age_scaled <- as.vector(as.numeric(scale(lag_age)))
+age_scaled <- as.vector(as.numeric(scale(age_vec)))
+
+age_morans <- tibble(
+  x = age_scaled,
+  lag_x = lag_age_scaled,
+  quadrant = case_when(
+    x > 0 & lag_x > 0 ~ "High-High",
+    x < 0 & lag_x < 0 ~ "Low-Low",
+    x > 0 & lag_x < 0 ~ "High-Low",
+    x < 0 & lag_x > 0 ~ "Low-High"
+  )
+)
+
+  
+  
+age_morans %>% 
+  ggplot(aes(x = x, y = lag_x, color = quadrant))+
+  geom_point()+
+  theme_classic()+
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(
+    x = "Observed value",
+    y = "Spatial lag value",
+    title = "Moran's I Plot of Dam Age",
+    subtitle = "Cell values computed with a Hexagon Tesselation",
+    color = "Quadrant"
+  )+
+  geom_abline(slope = 1, color = "navy")
+
+
+# Make a function to plot lags 
+
+lag_plot <- function(tessellation, dam_attr, attr_name = "n_dams") {
+  
+  vec <- dam_attr[[attr_name]]
+  
+  impute_mean <- function(x) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+    x
+  }
+  
+  vec_imputed  <- impute_mean(vec)
+  
+  W <- st_touches(tessellation, sparse = FALSE) * 1
+  diag(W) <- 0
+  rs <- rowSums(W)
+  W <- W / ifelse(rs == 0, 1, rs)
+  W[!is.finite(W)] <- 0
+  
+  lag <- as.numeric(W %*% vec_imputed)
+
+  lag_scaled <- as.vector(as.numeric(scale(lag)))
+  vec_scaled <- as.vector(as.numeric(scale(vec)))
+  
+  table <- tibble(
+  x = vec_scaled,
+  lag_x = lag_scaled,
+  quadrant = case_when(
+    x > 0 & lag_x > 0 ~ "High-High",
+    x < 0 & lag_x < 0 ~ "Low-Low",
+    x > 0 & lag_x < 0 ~ "High-Low",
+    x < 0 & lag_x > 0 ~ "Low-High"
+  )
+)
+  plot <- table %>% 
+  ggplot(aes(x = x, y = lag_x, color = quadrant))+
+  geom_point()+
+  theme_classic()+
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(
+    x = "Observed value",
+    y = "Spatial lag value",
+    color = "Quadrant"
+  )+
+  geom_abline(slope = 1, color = "navy")
+  
+  return(plot)
+}
 
 ```
+
+My global spatial correlation of 0.64 for dam age is congruent with my
+Moran's I plot. I used a hexagon tessellation and defined my W matrix
+such that neighbors are defined as cells touching each other so that
+every cell has n = 6 neighbors. The correlation of 0.64 between my
+spatial lag and observed values suggest a moderate global spatial
+autocorrelation. The plot concurs with this as we see a moderate level
+of concentration along the 1-1 diagonal. However, there are still values
+in the low-high and high-low quadrants as we would expect.
 
 ### Step 5.4
 
@@ -1426,6 +1760,32 @@ Re-aggregate dam counts *after* cropping to match the new tile geometry.
 :::
 
 ```{r}
+# double check CRS
+st_crs(hex_trim) == st_crs(us_counties)
+
+# identidy unique county id column 
+length(unique(us_counties$feature_code)) == nrow(us_counties)
+
+##Repeated workflow from Q 5 for counties 
+
+counties_dam_attr <- us_counties %>% 
+  st_join(dams2) %>% 
+  st_drop_geometry() %>% 
+  group_by(feature_code) %>%  #use feature code here as unique county ID
+  summarise(
+    n_dams = sum(!is.na(nid_id)), 
+    mean_year_completed = mean(year_completed, na.rm = TRUE),
+    mean_surface_area = mean(surface_area_acres, na.rm = TRUE)
+  ) %>% 
+  right_join(us_counties, by = "feature_code") %>% #counties feature code again
+  replace_na(list(
+    mean_year_completed = NA,
+    mean_surface_area   = NA
+  )) %>%
+  select(1:4, geometry) %>% 
+  st_as_sf()
+
+
 
 ```
 
@@ -1469,7 +1829,27 @@ sum(rowSums(neighbor_weights) == 0)
 :::
 
 ```{r}
+# Compute lag correlation and Moran's I for counties tesselation
 
+counties_W <- make_W(us_counties)
+
+counties_spatial <- analyze_spatial_autocorr(us_counties, counties_dam_attr, tess_name = "Counties")
+
+counties_table <- counties_spatial %>%
+  select(!tessellation) %>% 
+  flextable() %>% 
+  set_header_labels(
+    attr = "Dam attribute",
+    cor = "Spatial lag correlation",
+    qual_cor = "Correlation level",
+    moran_I = "Moran's I",
+    m_pvalue = "Moran's I p-value"
+  ) %>% 
+  set_caption(caption = "Spatial Correlation of Dam Attributes by County") %>% 
+  autofit()
+
+counties_table
+hexagon_spatial
 ```
 
 ### Step 6.3
@@ -1499,7 +1879,83 @@ quadrant distribution (% of tiles in HH vs. LL) reveals whether the
 landscape is dominated by hotspots, coldspots, or mixed.
 
 ```{r}
+c_count_plot <- lag_plot(us_counties, counties_dam_attr, attr_name = "n_dams")+
+  labs(title = "Counites with Dam Count")
 
+c_age_plot<- lag_plot(us_counties, counties_dam_attr, attr_name = "mean_year_completed")+
+    labs(title = "Counites with Dam Age")
+
+c_size_plot<- lag_plot(us_counties, counties_dam_attr, attr_name = "mean_surface_area")+
+    labs(title = "Counites with Dam Size")
+
+h_count_plot <- lag_plot(hex_trim, dam_attr, attr_name = "n_dams")+
+  labs(title = "Hexagon with Dam Count")
+
+h_age_plot<- lag_plot(hex_trim, dam_attr, attr_name = "mean_year_completed")+
+    labs(title = "Hexagon with Dam Age")
+
+h_size_plot<- lag_plot(hex_trim, dam_attr, attr_name = "mean_surface_area")+
+    labs(title = "Hexagon with Dam Size")
+
+library(patchwork)
+
+(c_count_plot + c_age_plot + c_size_plot) / (h_count_plot + h_age_plot + h_size_plot) +
+  plot_annotation(title = "County vs. Hexagon Tesselations")
+
+# modify lag_plot function for mapping
+
+lisa_map <- function(tessellation, dam_attr, attr_name = "n_dams", title) {
+  
+  vec <- dam_attr[[attr_name]]
+  
+  impute_mean <- function(x) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+    x
+  }
+  
+  vec_imputed  <- impute_mean(vec)
+  
+  W <- st_touches(tessellation, sparse = FALSE) * 1
+  diag(W) <- 0
+  rs <- rowSums(W)
+  W <- W / ifelse(rs == 0, 1, rs)
+  W[!is.finite(W)] <- 0
+  
+  lag <- as.numeric(W %*% vec_imputed)
+
+  lag_scaled <- as.vector(as.numeric(scale(lag)))
+  vec_scaled <- as.vector(as.numeric(scale(vec)))
+  
+  table <- tibble(
+  x = vec_scaled,
+  lag_x = lag_scaled,
+  quadrant = case_when(
+    x > 0 & lag_x > 0 ~ "High-High",
+    x < 0 & lag_x < 0 ~ "Low-Low",
+    x > 0 & lag_x < 0 ~ "High-Low",
+    x < 0 & lag_x > 0 ~ "Low-High"
+  )
+)
+  
+sf <- tessellation
+
+sf$attr <- as.numeric(dam_attr[[attr_name]])
+
+sf$quadrant <- table$quadrant
+
+color_scale <- c("High-High" = "red", "Low-Low" = "blue", "High-Low" = "yellow","Low-High"= "cyan")
+  
+map <- ggplot() +
+  geom_sf(data = sf, aes(fill = quadrant), color = "black") +
+  scale_fill_manual(values = color_scale) +
+  labs(fill = "LISA Quadrant",
+       title = title )+
+  theme_void()
+
+  return(map)
+}
+
+hex_lisa_map <-  lisa_map(hex_trim, dam_attr = dam_attr, attr_name = "n_dams", title = "Lisa Quadrants with a Hexagon Tesselation")
 ```
 
 ### Step 6.4
@@ -1526,7 +1982,10 @@ counties, or does MAUP (modifiable areal unit problem) create divergent
 local structure?
 
 ```{r}
+counties_lisa_map <- lisa_map(us_counties, dam_attr = counties_dam_attr, attr_name = "n_dams", title = "Lisa Quadrants with a Counties Tesselation")
 
+hex_lisa_map + counties_lisa_map +
+  plot_annotation(title = "Spatial relationship of dam counts with different tesselation types")
 ```
 
 ### Step 6.5
