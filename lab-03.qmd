@@ -304,7 +304,7 @@ After simplification, verify the boundary is still valid and covers all
 dams:
 
 ```{r}
-#| eval: false
+#| eval: true
 # Check the simplified boundary valid
 st_is_valid(simple_conus)
 
@@ -424,7 +424,7 @@ regional structure. This is part of the Modifiable Areal Unit Problem
 ### Step 1.6
 
 The last step is to plot your tessellations. We don't want to write out
-5 ggplots (or mindlessly copy and paste `r emo::ji("smile")`)
+5 ggplots (or mindlessly copy and paste
 
 Instead, lets make a function that takes an `sf` object as *arg1* and a
 character string as *arg2* and returns a ggplot object showing *arg1*
@@ -551,13 +551,14 @@ sum_tess <- function(sf_obj, description) {
     units::set_units(km^2) %>% 
     units::drop_units()
   
-  data.frame(
-    description    = description,
-    n_features     = nrow(sf_obj),
-    mean_area_km2  = mean(area_km2),
-    sd_area_km2    = sd(area_km2),
+ df <-  data.frame(
+    description = description,
+    n_features = nrow(sf_obj),
+    mean_area_km2 = mean(area_km2),
+    sd_area_km2 = sd(area_km2),
     total_area_km2 = sum(area_km2)
   )
+  return(df)
 }
 ```
 
@@ -588,6 +589,7 @@ bind your summaries of the triangulation and voroni object.
    sum_tess(triangle_trim, "Triangle Tesselation"),
    sum_tess(square_trim, "Square Tesselation"),
    sum_tess(hex_trim, "Hexagon Tesselation"),
+   sum_tess(us_counties, "Counties Tesselation")
    )
 ```
 
@@ -623,6 +625,22 @@ Comment on the traits of each tessellation. Be specific about how these
 traits might impact the results of a point-in-polygon analysis in the
 contexts of the modifiable areal unit problem and with respect
 computational requirements.
+
+The hexagon and square tessellations both have a standard area per unit,
+with the hexagon tessellation having the largest mean cell area and the
+squares having the second-largest. As random and consistently sized
+cells, summaries of features within these cells can be treated as
+spatial densities. The triangular and Voronoi tessellations rely on
+artificially constructed county centroids and vary in size. Because
+county boundaries have little relation to dams, which are usually
+constructed at the state or federal level, there is little validity in
+using these tessellation styles for a national inventory of dam
+features. Although the square tessellation technically provides higher
+spatial resolution, distances are biased along the diagonals compared to
+hexagons, and neighbor definitions are less clear with a square grid.
+Regarding the MAUP, my analysis is best suited to density metrics, so I
+want a standardized unit tessellation, and I am not concerned with local
+administrative boundaries at the county level.  
 
 ------------------------------------------------------------------------
 
@@ -754,7 +772,8 @@ object with a column - `n` - counting the number of points in each tile.
 
 ```{r}
 
-point_in_polygon <- function(points, polygon, id_column) {
+#PIP funciton 
+point_in_polygon <- function(points, polygon, poly_id = id, point_id = nid_id) {
   
   if (!inherits(points, "sf")) stop("Points must be sf object")
   if (!inherits(polygon, "sf")) stop("Polygon must be sf object")
@@ -762,8 +781,8 @@ point_in_polygon <- function(points, polygon, id_column) {
   tryCatch({
     if (st_crs(points) != st_crs(polygon)) {
       print("CRS do not match, transforming to polygon CRS")
-    }
-    points <- st_transform(points, st_crs(polygon))
+       points <- st_transform(points, st_crs(polygon))
+       }
   }, error = function(e) {
     print(paste("CRS transform failed:", e$message))
     stop(e)
@@ -772,11 +791,11 @@ point_in_polygon <- function(points, polygon, id_column) {
   tryCatch({
  
  result <-  st_join(polygon, points) %>% 
-    st_drop_geometry() %>%  
-    count(get(id_column)) %>% 
-    setNames(c(id_column, "n")) %>% 
-    left_join(polygon, by = id_column) %>% 
-    st_as_sf()
+    st_drop_geometry() %>%
+      group_by({{ poly_id }}) %>%                         
+      summarise(n = sum(!is.na({{ point_id }}))) %>%  
+      left_join(polygon, by = join_by({{ poly_id }})) %>%  
+      st_as_sf()
  
    return(result)
     
@@ -798,18 +817,18 @@ surfaces where:
 
 ```{r}
 
-voroni_pip <- point_in_polygon(dams2, voroni_trim, id_column = "id")
+voroni_pip <- point_in_polygon(dams2, voroni_trim)
 
-triangle_pip <- point_in_polygon(dams2, triangle_trim, id_column = "id")
+triangle_pip <- point_in_polygon(dams2, triangle_trim)
 
-square_pip <- point_in_polygon(dams2, square_trim, "id")
+square_pip <- point_in_polygon(dams2, square_trim)
 
-hex_pip <- point_in_polygon(dams2, hex_trim, "id")
+hex_pip <- point_in_polygon(dams2, hex_trim)
 
 counties_id <- us_counties %>% 
   mutate(id = 1:n())
 
-counties_pip <- point_in_polygon(dams2, counties_id, "id")
+counties_pip <- point_in_polygon(dams2, counties_id)
 ```
 
 ### Step 3.4
@@ -843,17 +862,24 @@ For this function:
 ```{r}
 pip_plot <- function(sf_obj, title) {
   plot <- ggplot(data = sf_obj)+
-            geom_sf(aes(fill = log10(n)))+
-            scale_fill_viridis_c()+
+            geom_sf(aes(fill = n))+
+            scale_fill_viridis_c(
+              trans = "log1p",
+              labels = scales::label_comma())+
             theme_void()+
             labs(title = title,
-                 fill = "log number of damns",
-                 caption = paste("Total Number with dams", sum(sf_obj$n))
+                 fill = "dams per unit",
+                 caption = paste("Total Number of dams", sum(sf_obj$n)),
+                  subtitle = "Density color log scaled"
                  )+
             theme(plot.background = element_rect(colour = "navy", fill = NA, linewidth = 2),
                   plot.margin = margin(t = 0.5, r = 0.5, b = 0.5, l = 0.5, unit = "cm"),
-                  plot.title = element_text(hjust = .5, size = 13, color = "navy"),
-                  legend.title = element_text(size = 9))
+                  plot.title = element_text(hjust = .5, size = 9, color = "navy"),
+                  legend.title = element_text(size = 7),
+                  plot.subtitle = element_text(hjust = .5, size = 9, color = "navy"),
+                  legend.key.size = unit(0.3, "cm"),
+                  plot.caption = element_text(hjust = .5 , size = 5, color = "steelblue"),
+                  legend.text = element_text(size = ))
   return(plot)
 }
 ```
@@ -888,6 +914,14 @@ showing dam clustering under each of the five tessellations. Use
 `patchwork` or `cowplot` to arrange the 5 plots you created in Step 3.5
 for direct visual comparison.
 
+```{r}
+
+library(patchwork)
+
+voroni_plot + triangle_plot + square_plot + hex_plot + counties_plot +
+  plot_layout(ncol = 2) 
+```
+
 **b.** Identify **2–3 geographic regions** where tessellation choice
 produces substantially *different* patterns (e.g., one method shows a
 clear hotspot while another shows diffuse distribution). For each
@@ -895,6 +929,22 @@ region, describe the pattern difference and explain *why* the
 tessellation geometry creates divergent results. Reference the
 characteristics from your Q2 summary (number of tiles, mean area,
 standard deviation).
+
+There is a general geographic trend where the county based tessellations
+and standardized tessellations show similar patterns on the east coast,
+but start to diverge around the 100th meridian. The is a result of
+Western counties generally being much larger and more irregularly
+shaped. County area has a standard deviation of 3,443 km2 and a mean of
+2,605.1 km2, demonstrating the large variability of area nationally. In
+the east, while counties are still variable, they are more uniform and
+layed out as a grid and as such local summaries are closer to densities.
+In the West the counties are much larger and more spatially variable in
+size, so they do a poorer job approximating density. For instance, with
+the square and hexagon tessellations, we see a clear dam density signal
+along the Lower Colorado River Basin, but the larger counties based
+units hide this pattern. The regular units also show a dam cluster in
+Central CA, but this area also has smaller counties than it's
+surroundings, so county based tessellations don't register this cluster.
 
 **c.** **Which single tessellation would you recommend to a dam
 operations manager seeking to understand geographic clustering?**
@@ -910,17 +960,35 @@ management decisions" mean concretely in your context—does it matter
 more that hot spots are obvious, or that boundaries align with
 jurisdictions?
 
-Your answer should be **3–4 paragraphs** and grounded in the actual
-visualizations and patterns you observe from your tessellation
-comparisons.
+To understand geographic clustering, I would suggest a regular
+tessellation, as it captures density and is most useful for
+understanding national-level spatial patterns of dams. Between the two
+choices, the hexagon tessellation is better, as it doesn't have a
+spatial diagonal bias like the squares, and the W matrices will have
+clearer-defined neighbor definitions. Even though the hexagons have the
+largest area, my maps show that spatial resolution is still well
+maintained, and local clustering is not lost compared to the other
+options.
 
-```{r}
+Unlike county boundaries, which reflect historical and political
+conditions unrelated to dam distribution, hexagons impose a spatially
+neutral framework across the entire country. Every cell covers the same
+area and has the same number of neighbors, so a hotspot in the West and
+one in the East are directly comparable without any area-normalization
+step. For a national-level analysis where the question is where dams
+cluster rather than who manages them, this geometric consistency is the
+most important property.
 
-library(patchwork)
-
-voroni_plot + triangle_plot + square_plot + hex_plot + counties_plot +
-  plot_layout(ncol = 2) 
-```
+Each tessellation is still valid, but as it relates to the MAUP, it
+depends on the question we are investigating. For instance, if I were
+more interested in which administrative units have the oldest
+infrastructure or the highest risk associated with their dams, using
+county units would reveal patterns about which counties may need federal
+support. This analysis is most concerned with a broad, national-level
+identification of patterns and hot spots, which is why I selected the
+hexagons. However, a natural next step would be a county-level analysis
+to identify specific jurisdictional regions that may need support for
+their infrastructure.
 
 ------------------------------------------------------------------------
 
@@ -1055,20 +1123,20 @@ or `square_clipped`).
 ```{r}
 supply_subset <- dams2 %>% 
     filter(grepl("Water Supply", dams2$purposes) == TRUE) %>% 
-  point_in_polygon(hex_trim, "id")
+  point_in_polygon(hex_trim)
 
 
 rec_subset <- dams2 %>% 
   filter(grepl("Recreation", dams2$purposes) == TRUE) %>% 
-    point_in_polygon(hex_trim, "id")
+    point_in_polygon(hex_trim)
 
 fire_subset <-   dams2 %>% 
     filter(grepl("Fire Protection", dams2$purposes) == TRUE) %>% 
-    point_in_polygon(hex_trim, "id")
+    point_in_polygon(hex_trim)
 
 fish_subset <- dams2 %>% 
     filter(grepl("Fish and Wildlife", dams2$purposes) == TRUE) %>% 
-    point_in_polygon(hex_trim, "id")
+    point_in_polygon(hex_trim)
 
 ```
 
@@ -1087,28 +1155,30 @@ fish_subset <- dams2 %>%
 -   The result of this exploration is to highlight the areas of the
     country with the most
 
-```{r}
+```{r }
 
-supply_subset %>% 
+supply <- supply_subset %>% 
   pip_plot("Dams with a Supply Purpose")+
   gghighlight(n > mean(n) + sd(n)) +
   labs(caption = "Tiles where the dam count is greater then the (mean + 1 standard deviation) are highlighted")
 
-rec_subset %>% 
+rec <- rec_subset %>% 
   pip_plot("Dams with a Recreation Purpose")+
   gghighlight(n > mean(n) + sd(n)) +
   labs(caption = "Tiles where the dam count is greater then the (mean + 1 standard deviation) are highlighted")
 
-fire_subset %>% 
+fire <- fire_subset %>% 
   pip_plot("Dams with a Fire Supression Purpose")+
   gghighlight(n > mean(n) + sd(n)) +
   labs(caption = "Tiles where the dam count is greater then the (mean + 1 standard deviation are highlighted")
 
 
-fish_subset %>% 
+fish <- fish_subset %>% 
   pip_plot("Dams with a Fish and Wildlife Purpose")+
   gghighlight(n > mean(n) + sd(n)) +
   labs(caption = "Tiles where the dam count is greater then the (mean + 1 standard deviation are highlighted")
+
+supply + rec + fire + fish + plot_layout(ncol = 2)
 
 ```
 
@@ -1118,6 +1188,20 @@ Comment on the geographic distribution of dams you found. Does it make
 sense? How might the tessellation you chose impact your findings? How
 does the distribution of dams coincide with other geographic factors
 such as river systems, climate, ect?
+
+The geographic distribution of dams across all four purpose categories
+aligns closely with expected environmental and demographic geography.
+Supply dams in the West cluster along the Pacific coast and the
+Southwest and match population centers (Colorado Front Range, L.A., and
+Bay Area). Recreation dams are concentrated in the Northeast and the
+Appalachian corridor, reflecting high population density and a long
+history of reservoir development (TVA). Fire suppression dams are
+concentrated in the Great Plain, likely reflecting the region's
+grassland fire risk and limited natural water availability across flat
+terrain. Fish and wildlife dams are the most spatially diffuse. The
+hexagon tessellation's consistent cell size means these patterns reflect
+spatial clustering, though its coarse resolution may average out finer
+in specific regions.
 
 **Optional: Connect to Q6** — For purposes you chose in Q4, hypothesize
 in 1–2 sentences: *"Will \[irrigation/hydroelectric\] dams show the same
@@ -1206,10 +1290,13 @@ dam_attr <- hex_trim %>%
   )) %>%
   st_as_sf()
 
-attr_plot <- function(sf_obj, title, attr) {
+attr_plot <- function(sf_obj, title, attr, n_breaks = 5) {
   plot <- ggplot(data = sf_obj)+
-            geom_sf(aes(fill = log10({{attr}}+1)))+
-            scale_fill_viridis_c()+
+            geom_sf(aes(fill = {{attr}}))+
+            scale_fill_viridis_c(    
+              trans = "log1p",
+              labels = scales::label_comma(),
+                n.breaks = n_breaks)+
             theme_void()+
             labs(title = title)+
             theme(plot.background = element_rect(colour = "navy", fill = NA, linewidth = 2),
@@ -1220,11 +1307,12 @@ attr_plot <- function(sf_obj, title, attr) {
 }
 
 
-attr_plot(dam_attr, "Dam Count by Tile", attr = n_dams)
+attr_plot(dam_attr, "Dam Count by Tile", attr = n_dams, n_breaks = 4)
 
-attr_plot(dam_attr, "Mean Dam Age by Tile", attr = mean_year_completed)
+attr_plot(dam_attr, "Mean Dam Age by Tile", attr = mean_year_completed)+
+  scale_fill_viridis_c()
 
-attr_plot(dam_attr, "Mean Surface Area by Tile", attr = mean_surface_area)
+attr_plot(dam_attr, "Mean Surface Area by Tile", attr = mean_surface_area, n_breaks = 2)
 
 ```
 
@@ -1445,16 +1533,6 @@ analyze_spatial_autocorr <- function(tessellation, dam_attr, tess_name = "Tessel
 }
 ```
 
-The correlation between the observed value and the spatial lag shows
-that the number of dams per cell is high correlated to its neighboring
-cells, and age is slightly less correlated. This makes sense, dam
-denisty is a function of local water resources, which are often
-spatially clustered along rivers or within watersheds and the age of
-development would similarly be clustered and relate to the overall time
-the area was developed. Size has low spatial correlation due to the fact
-that size is a function of complex social and hydrologic constraints
-which do not spatially cluster.
-
 ### Step 5.3
 
 **Global Question:** Do neighboring tiles resemble each other overall,
@@ -1583,15 +1661,6 @@ lag_plot <- function(tessellation, dam_attr, attr_name = "n_dams") {
 
 ```
 
-My global spatial correlation of 0.64 for dam age is congruent with my
-Moran's I plot. I used a hexagon tessellation and defined my W matrix
-such that neighbors are defined as cells touching each other so that
-every cell has n = 6 neighbors. The correlation of 0.64 between my
-spatial lag and observed values suggest a moderate global spatial
-autocorrelation. The plot concurs with this as we see a moderate level
-of concentration along the 1-1 diagonal. However, there are still values
-in the low-high and high-low quadrants as we would expect.
-
 ### Step 5.4
 
 **Global Interpretation of Spatial Patterns**
@@ -1652,12 +1721,34 @@ management or hydrologic factors drive these patterns? - How do findings
 from your Moran analysis here compare to what you observed in Q4 (dam
 purposes geography)?
 
+My answer:
+
+The correlation between the observed value and the spatial lag shows
+that the number of dams per cell is highly correlated to its neighboring
+cells, and age is slightly less correlated. This makes sense, dam
+denisty is a function of local water resources, which are often
+spatially clustered along rivers or within watersheds and the age of
+development would similarly be clustered and relate to the overall time
+the area was developed. Size has low spatial correlation due to the fact
+that size is a function of complex social and hydrologic constraints
+which do not spatially cluster.
+
+My global spatial correlation of 0.64 for dam age is congruent with my
+Moran's I plot. I used a hexagon tessellation and defined my W matrix
+such that neighbors are defined as cells touching each other so that
+every cell has n = 6 neighbors. The correlation of 0.64 between my
+spatial lag and observed values suggest a moderate global spatial
+autocorrelation. The plot concurs with this as we see a moderate level
+of concentration along the 1-1 diagonal. However, there are still values
+in the low-high and high-low quadrants as we would expect.
+
+It makes sense that we see spatial correlations for many dam attributes.
+As we saw in the analysis of use, dam features often relate to regional
+hydrology and societal needs (for instance in the West, supply
+reservoirs are clustered around population centers).
+
 **Note**: In future weeks, we'll explore how spatial structure revealed
 here relates to statistical modeling of dam attributes.
-
-```{r}
-
-```
 
 ### Step 5.5 (Optional) — Hypothesis Checkpoint
 
@@ -1678,6 +1769,10 @@ see in a Moran scatterplot (Q6)?**
 Write 2–3 sentences predicting Q6 outcomes before you compute LISA.
 After Q6, revisit this prediction to see if reality matched your
 expectation.
+
+I expect to see traits with higher Moran's I to have a scatter plot that
+is more concentrated along a 1-1 diagonal and with the majority of
+points in the H-H and L-L quadrants.
 
 ------------------------------------------------------------------------
 
@@ -1937,6 +2032,11 @@ lisa_map <- function(tessellation, dam_attr, attr_name = "n_dams", title) {
   )
 )
   
+  quad_counts <- table %>%
+    count(quadrant) %>%
+     mutate(tessellation = title) %>%
+   select(tessellation, quadrant, n)
+    
 sf <- tessellation
 
 sf$attr <- as.numeric(dam_attr[[attr_name]])
@@ -1952,10 +2052,14 @@ map <- ggplot() +
        title = title )+
   theme_void()
 
-  return(map)
+  return(list(map = map, quad_counts = quad_counts))
 }
 
-hex_lisa_map <-  lisa_map(hex_trim, dam_attr = dam_attr, attr_name = "n_dams", title = "Lisa Quadrants with a Hexagon Tesselation")
+hex_lisa <-  lisa_map(hex_trim, dam_attr = dam_attr, attr_name = "n_dams", title = "Hexagon Tesselation")
+
+hex_lisa_map <- hex_lisa$map
+
+hex_lisa_units <- hex_lisa$quad_counts
 ```
 
 ### Step 6.4
@@ -1981,11 +2085,33 @@ purpose? Do patterns align between your chosen tessellation and
 counties, or does MAUP (modifiable areal unit problem) create divergent
 local structure?
 
+The hexagons do a better job of revealing broad clustering, but lose
+some spatial resolution on the East Coast and Mississippi River Basin
+that is resolved with counties. Patterns align somewhat, but their are
+notable areas of divergence like the Great Lakes region, suggesting the
+MAUP can create divergent spatial clustering for dam density.
+
 ```{r}
-counties_lisa_map <- lisa_map(us_counties, dam_attr = counties_dam_attr, attr_name = "n_dams", title = "Lisa Quadrants with a Counties Tesselation")
+counties_lisa <- lisa_map(us_counties, dam_attr = counties_dam_attr, attr_name = "n_dams", title = "Counties Tesselation")
+
+counties_lisa_map <- counties_lisa$map
+counties_lisa_units <- counties_lisa$quad_counts
+
 
 hex_lisa_map + counties_lisa_map +
   plot_annotation(title = "Spatial relationship of dam counts with different tesselation types")
+
+counties_lisa_units %>% 
+  bind_rows(hex_lisa_units) %>% 
+  flextable() %>% 
+  set_header_labels(
+    tessellation = "Tessellation Type",
+    quadrant = "Lisa Quadrant",
+    n = "Cell Count"
+  ) %>% 
+  set_caption(caption = "Lisa Quadrant Distribution") %>% 
+  autofit()
+  
 ```
 
 ### Step 6.5
@@ -2000,6 +2126,23 @@ River dams, others?) - Which regions are LL coldspots? (Mountains,
 deserts, sparse-development areas?) - What management or hydrologic
 factors explain these patterns?
 
+In the West, we see smaller clustering regions that relate largely
+population centers like the Colorado Front Range, the Wasatch Front, the
+Bay Area, and the Seattle-Tacoma corridor, these clusters are largely
+caused by the arid environment and the need for reservoirs to support
+municipal consumption and agriculture. For instance in the Wasatch
+Front, we see a cluster caused primarliy by: 1) Mormon settlement in the
+region in the 1800s and subsequent irrigation created historical water
+infrastructure in an otherwise low populaiton area. 2) Local climate
+patterns (Wasatch snowfall, lake effect) generate seasonally
+heterogeneous precipitation patterns requiring storage infrastructure.
+3) Arid surrounding regions (Bonneville Salt Flats) that don't have a
+population density or sufficient precipitation to justify storage
+projects. We also see a large cluster through the Midwest and Great
+Plains which relates to higher densities to support the regions
+agricultural economies. There is also a strong Appalachian cluster from
+TVA decleopment throughout the region.
+
 **Specific region example:** Choose one HH hotspot (e.g., Tennessee
 Valley Authority region, Colorado River Basin, California Central
 Valley) and describe three factors that explain why TVA dams or Colorado
@@ -2009,9 +2152,27 @@ needed.
 **b.** **Outliers and anomalies**: Are there notable HL or LH tiles?
 What might explain them?
 
+We see a nice isolated HL cluster in Southern California in the Imperial
+Valley. Staring in the 1920s, intense agricultural development in this
+region was enabled by Reclamation projects in part funded through the
+Boulder Canyon Act of 1928. It is now a highly productive production
+region surrounded by arid desert, explaining the observed High-Low
+clustering.
+
 **c.** **Unit comparison**: Does analysis unit choice (hexagon vs.
 county) affect LISA conclusions? How does MAUP operate at the local
 scale?
+
+The hexagon map produces large, coherent regional clusters. For example,
+the central HH cluster reads as a single contiguous zone. The county map
+fragments the same signal into a much more heterogeneous pattern, with
+HH, HL, and LH counties interleaved at fine scales, particularly across
+the Southeast and Mid-Atlantic. The county map reveals where within a
+hot spot region the clustering is strongest, while the hexagon map
+communicates a hot spot exists and roughly where at a national scale.
+For national questions, the hexagon result is cleaner. For state-level
+regulatory decisions, the county map's finer resolution is more
+beneficial.
 
 **d.** **Implications for management**: How does LISA output inform dam
 operations, reporting, or policy? - Where should multi-state
@@ -2021,6 +2182,11 @@ Q6 compare to the dam purpose patterns you identified in Q4? (E.g., do
 irrigation dams cluster the same way as all dams?) - Where do policies
 need special attention to local anomalies? (HL/LH outliers)
 
-```{r}
-
-```
+For management, the HH hotspots across the Midwest and Southeast warrant
+multi-state coordination frameworks like the TVA model of regional
+authority. The HL outlier tiles in the Southwest deserve specific
+regulatory attention, as isolated high-density cells in otherwise sparse
+regions may large-scale infrastructure that warrants specific regulatory
+and administrative management rather than more decentralized systems
+through the Midwest. We see LL cold spots throughout much of the West,
+were climates are arid and population density is low.
