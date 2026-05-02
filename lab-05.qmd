@@ -18,16 +18,7 @@ library(tidymodels)
 
 # Introduction
 
-In this lab, we will explore predictive modeling in hydrology using the `tidymodels` framework and the CAMELS (Catchment Attributes and Meteorology for Large-sample Studies) dataset.
-
-```{r}
-#| echo: false
-#| out.width: "75%"
-#| fig.align: "center"
-knitr::include_graphics("https://ncar.github.io/hydrology/assets/img/datasets/CAMELS_attributes_fig1.png")
-```
-
-## What is tidymodels?
+In this lab, we will explore predictive modeling in hydrology using the `tidymodels` framework and the CAMELS (Catchment Attributes and Meteorology for Large-sample Studies) dataset.What is tidymodels?
 
 `tidymodels` is an R framework designed for machine learning and statistical modeling. Built on the principles of the `tidyverse`, `tidymodels` provides a consistent and modular approach to tasks like data preprocessing, model training, evaluation, and validation. By leveraging the strengths of packages such as `recipes`, `parsnip`, and `yardstick`, `tidymodels` streamlines the modeling workflow, making it easier to experiment with different models while maintaining reproducibility and interpretability.
 
@@ -37,21 +28,21 @@ The CAMELS dataset is a widely used resource in hydrology and environmental scie
 
 In this lab, we will focus on predicting mean streamflow for these basins using their associated characteristics. CAMELS has been instrumental in various hydrologic and machine learning applications, including:
 
- - Calibrating Hydrologic Models – Used for parameter tuning in models like SAC-SMA, VIC, and HBV, improving regional and large-sample studies.
+-   Calibrating Hydrologic Models – Used for parameter tuning in models like SAC-SMA, VIC, and HBV, improving regional and large-sample studies.
 
- - Training Machine Learning Models – Supports deep learning (e.g., LSTMs) and regression-based streamflow predictions, often outperforming traditional methods.
+-   Training Machine Learning Models – Supports deep learning (e.g., LSTMs) and regression-based streamflow predictions, often outperforming traditional methods.
 
- - Understanding Model Behavior – Assists in assessing model generalization, uncertainty analysis, and the role of catchment attributes.
+-   Understanding Model Behavior – Assists in assessing model generalization, uncertainty analysis, and the role of catchment attributes.
 
- - Benchmarking & Regionalization – Facilitates large-scale model comparisons and parameter transfer to ungauged basins.
+-   Benchmarking & Regionalization – Facilitates large-scale model comparisons and parameter transfer to ungauged basins.
 
- - Hybrid Modeling – Enhances physics-based models with machine learning for bias correction and improved hydrologic simulations.
+-   Hybrid Modeling – Enhances physics-based models with machine learning for bias correction and improved hydrologic simulations.
 
 A notable study by Kratzert et al. (2019) demonstrated that LSTMs can outperform conceptual models in streamflow prediction. As part of this lab, we will explore how to programmatically download and load the data into R.
 
 # What's in the data?
 
-Each record in the CAMELS dataset represents a unique river basin, identified by an outlet USGS NWIS `gauge_id`. The dataset contains a mix of continuous and categorical variables, including meteorological, catchment, and streamflow summaries. 
+Each record in the CAMELS dataset represents a unique river basin, identified by an outlet USGS NWIS `gauge_id`. The dataset contains a mix of continuous and categorical variables, including meteorological, catchment, and streamflow summaries.
 
 The data we are going to download are the basin-level summaries. For example, if we looked at row 1 of the data (Gage: 01013500), all of the attribute values are areal averages over the drainage basin shown below, while the flow metrics are associated with the outlet gage (in red). We can use `dataRetrieval::findNLDI()` to fetch the basin polygon and upstream flowlines:
 
@@ -71,6 +62,7 @@ ggplot() +
   geom_sf(data = basin$UT_flowlines, color = "blue") + 
   geom_sf(data = basin$origin, color = "red") + 
   theme_minimal()
+
 ```
 
 ## Lab Goals
@@ -79,33 +71,37 @@ This lab's worked example grounds the **minimum** tidymodels pipeline — split,
 
 By the end of the lab you will have:
 
- - Programmatically downloaded CAMELS data and joined basin-level attribute files into a modeling-ready frame.
- - Specified a `recipe`, dropped it into a `workflow`, and compared multiple models via `workflow_set` against cross-validated resamples *(Week 5-1)*.
- - Extracted **variable importance** and interpreted predictor ranks through the *geographic-proxy* lens *(Week 5-2)*.
- - Evaluated with **spatial cross-validation** and reported the honest gap between random and spatial CV *(Week 5-2)*.
- - **Tuned** hyperparameters with `tune_grid()` and a named grid, then finalized with `last_fit()` *(Week 6-1)*.
- - Produced a deployed Quarto page communicating the full pipeline.
+-   Programmatically downloaded CAMELS data and joined basin-level attribute files into a modeling-ready frame.
+-   Specified a `recipe`, dropped it into a `workflow`, and compared multiple models via `workflow_set` against cross-validated resamples *(Week 5-1)*.
+-   Extracted **variable importance** and interpreted predictor ranks through the *geographic-proxy* lens *(Week 5-2)*.
+-   Evaluated with **spatial cross-validation** and reported the honest gap between random and spatial CV *(Week 5-2)*.
+-   **Tuned** hyperparameters with `tune_grid()` and a named grid, then finalized with `last_fit()` *(Week 6-1)*.
+-   Produced a deployed Quarto page communicating the full pipeline.
 
 The worked example below demonstrates (1) and a stripped-down (2). You'll apply the remaining capabilities — full workflow comparison, spatial CV, VIP, tuning, and `last_fit()` — in Q4 using the lecture material as reference.
 
 # Lab Set Up
 
-1. Make a new R project where you want this work to take place.
-2. Create a Quarto document called `lab-05.qmd` in the project folder.
-3. Create a `data` directory in your project folder.
-4. Instantiate a git archive with `usethis::use_git()`
-5. Connect it to a Github repository with `usethis::use_github()`
+1.  Make a new R project where you want this work to take place.
+2.  Create a Quarto document called `lab-05.qmd` in the project folder.
+3.  Create a `data` directory in your project folder.
+4.  Instantiate a git archive with `usethis::use_git()`
+5.  Connect it to a Github repository with `usethis::use_github()`
 
 Let's start by loading the necessary libraries for this lab (you may need to install some!):
 
 ```{r}
 #| message: false
-library(tidyverse)
-library(tidymodels)
-library(powerjoin)
-library(glue)
-library(vip)
-library(baguette)
+
+pacman::p_load(
+  tidyverse,
+  tidymodels,
+  powerjoin,
+  glue,
+  vip,
+  baguette
+)
+  
 ```
 
 ## Data Download
@@ -124,17 +120,16 @@ We can download the documentation PDF which provides descriptions for the variou
 
 ```{r}
 #| eval: false
-download.file('https://zenodo.org/records/15529996/files/camels_attributes_v2.0.pdf?download=1',
-              '../data/camels_attributes_v2.0.pdf',
-              mode = 'wb')
+download.file('https://zenodo.org/records/15529996/files/camels_attributes_v2.0.pdf?download=1',  destfile = 'data/camels_attributes_v2.0.pdf', mode = 'wb')
+
+
 ```
 
 ## Getting Basin characteristics
 
-Now we want to download the `.txt` files that store the actual data documented in the PDF.
-Doing this file by file (like we did with the PDF) is possible, but lets look at a better/easier way...
+Now we want to download the `.txt` files that store the actual data documented in the PDF. Doing this file by file (like we did with the PDF) is possible, but lets look at a better/easier way...
 
-a. Lets create a vector storing the data types/file names we want to download:
+a.  Lets create a vector storing the data types/file names we want to download:
 
 ```{r}
 types <- c("clim", "geol", "soil", "topo", "vege", "hydro")
@@ -142,17 +137,19 @@ types <- c("clim", "geol", "soil", "topo", "vege", "hydro")
 
 ::: {.callout-warning collapse="true"}
 ### glue
+
 The `glue` package provides an efficient way to interpolate and manipulate strings. It is particularly useful for dynamically constructing text, formatting outputs, and embedding R expressions within strings.
 
 #### Key Features of glue:
 
- - **String Interpolation**: Embed R expressions inside strings using `{}`.
- - **Improved Readability**: Eliminates the need for cumbersome `paste()`, `paste0()` and `sprintf()` commands.
- - **Multi-line Strings**: Easily handle multi-line text formatting.
- - **Safe and Efficient**: Optimized for performance and readability.
+-   **String Interpolation**: Embed R expressions inside strings using `{}`.
+-   **Improved Readability**: Eliminates the need for cumbersome `paste()`, `paste0()` and `sprintf()` commands.
+-   **Multi-line Strings**: Easily handle multi-line text formatting.
+-   **Safe and Efficient**: Optimized for performance and readability.
 
 #### Basic Usage
-- To use `glue`, you need to load the package and then call the `glue()` function with the desired string template. You can embed R expressions within curly braces `{}` to interpolate values into the string.
+
+-   To use `glue`, you need to load the package and then call the `glue()` function with the desired string template. You can embed R expressions within curly braces `{}` to interpolate values into the string.
 
 ```{r}
 class <- "ESS 330"
@@ -163,7 +160,7 @@ glue("We are taking {class} together in {year}")
 
 ### Multiples
 
-- You can also use glue to interpolate multiple values at once
+-   You can also use glue to interpolate multiple values at once
 
 ```{r}
 classes <- c("ESS 330", "ESS 523c")
@@ -172,7 +169,7 @@ glue("We are taking {classes} together in {year}")
 ```
 :::
 
-b. Using `glue`, we can construct the needed URLs and file names for the data we want to download. Zenodo direct-download links end with `?download=1`, so we append that to the remote URL but keep the local filename clean:
+b.  Using `glue`, we can construct the needed URLs and file names for the data we want to download. Zenodo direct-download links end with `?download=1`, so we append that to the remote URL but keep the local filename clean:
 
 ```{r}
 # Where the files live online ...
@@ -181,24 +178,23 @@ remote_files  <- glue('{root}/camels_{types}.txt?download=1')
 local_files   <- glue('data/camels_{types}.txt')
 ```
 
-c. Now we can download the data:
-`walk2` comes from the `purrr` package and is used to apply a function to multiple arguments in parallel (much like `map2` works over paired lists). Here, we are asking `walk2` to pass the first element of `remote_files` and the first element of `local_files` to the `download.file` function to download the data, and setting `quiet = TRUE` to suppress output. The process is then iterated for the second element of each vector, and so on.
+c.  Now we can download the data: `walk2` comes from the `purrr` package and is used to apply a function to multiple arguments in parallel (much like `map2` works over paired lists). Here, we are asking `walk2` to pass the first element of `remote_files` and the first element of `local_files` to the `download.file` function to download the data, and setting `quiet = TRUE` to suppress output. The process is then iterated for the second element of each vector, and so on.
 
 ```{r}
 #| eval: false
 walk2(remote_files, local_files, download.file, quiet = TRUE)
 ```
 
-d. Once downloaded, the data can be read it into R using `readr::read_delim()`, again instead of applying this to each file individually, we can use `map` to apply the function to each element of the `local_files` list.
+d.  Once downloaded, the data can be read it into R using `readr::read_delim()`, again instead of applying this to each file individually, we can use `map` to apply the function to each element of the `local_files` list.
 
 ```{r}
 # Read and merge data
 camels <- map(local_files, read_delim, show_col_types = FALSE) 
 ```
 
-e. This gives us a list of data.frames, one for each file that we want to merge into a single table. So far in class we have focused on *_join functions to merge data based on a primary and foreign key relationship.
+e.  This gives us a list of data.frames, one for each file that we want to merge into a single table. So far in class we have focused on \*\_join functions to merge data based on a primary and foreign key relationship.
 
-In this current list, we have >2 tables, but, have a shared column called `gauge_id` that we can use to merge the data. However, since we have more then a left and right hand table, we need a more robust tool. We will use the `powerjoin` package to merge the data into a single data frame. `powerjoin` is a flexible package for joining lists of `data.frames`. It provides a wide range of join types, including inner, left, right, full, semi, anti, and cross joins making it a versatile tool for data manipulation and analysis, and one that should feel familiar to users of `dplyr`.
+In this current list, we have \>2 tables, but, have a shared column called `gauge_id` that we can use to merge the data. However, since we have more then a left and right hand table, we need a more robust tool. We will use the `powerjoin` package to merge the data into a single data frame. `powerjoin` is a flexible package for joining lists of `data.frames`. It provides a wide range of join types, including inner, left, right, full, semi, anti, and cross joins making it a versatile tool for data manipulation and analysis, and one that should feel familiar to users of `dplyr`.
 
 In this case, we are join to merge every data.frame in the list (n = `r length(local_files)`) by the shared `gauge_id` column. Since we want to keep all data, we want a full join.
 
@@ -206,7 +202,7 @@ In this case, we are join to merge every data.frame in the list (n = `r length(l
 camels <- power_full_join(camels ,by = 'gauge_id')
 ```
 
-:::{.callout-note}
+::: callout-note
 Alternatively, we could have read straight form the urls. Strongly consider the implications of this approach as the longevity and persistence of the data is not guaranteed.
 
 ```{r}
@@ -219,8 +215,10 @@ camels <- map(remote_files, read_delim, show_col_types = FALSE) |>
 
 # Question 1: Your Turn (15 points)
 
-- [ ] Make sure all data and the PDF are downloaded into you data directory
-- [ ] From the documentation PDF, report what `zero_q_freq` represents
+-   [x] Make sure all data and the PDF are downloaded into you data directory
+-   [ ] From the documentation PDF, report what `zero_q_freq` represents
+
+P_q_zero is the frequency of days with a discharge of 0 per day. Stated differently, it is a way to understand the flow regime of a basin.
 
 ## Exploratory Data Analysis
 
@@ -233,30 +231,33 @@ ggplot(data = camels, aes(x = gauge_lon, y = gauge_lat)) +
   geom_point(aes(color = q_mean)) +
   scale_color_gradient(low = "pink", high = "dodgerblue") +
   ggthemes::theme_map()
+  
 ```
 
 We can take a moment here to learn a few new things about `ggplot2`!
 
-:::{.callout-note}
+::: callout-note
 ### Color scales
+
 In `ggplot`, sometimes you want different things (like bars, dots, or lines) to have different colors. But how does R know which colors to use? That’s where color scales come in!
 
 scales can be used to map data values to colors (`scale_color_*`) or fill aesthetics (`scale_fill_*`). There are two main types of color scales:
 
- - Discrete color scales – for things that are categories, like "apples," "bananas," and "cherries." Each gets its own separate color.
+-   Discrete color scales – for things that are categories, like "apples," "bananas," and "cherries." Each gets its own separate color.
+
 ```{r}
 #| eval: false
 scale_color_manual(values = c("red", "yellow", "pink")) #lets you pick your own colors.
 ```
 
-Or 
+Or
 
 ```{r}
 #| eval: false
 scale_color_brewer(palette = "Set1") #uses a built-in color set.
 ```
 
- - Continuous color scales – for numbers, like temperature (cold to hot) or height (short to tall). The color changes smoothly.
+-   Continuous color scales – for numbers, like temperature (cold to hot) or height (short to tall). The color changes smoothly.
 
 ```{r}
 #| eval: false
@@ -266,9 +267,37 @@ scale_color_gradient(low = "blue", high = "red") #makes small numbers blue and b
 
 # Question 2: Your Turn (20 points)
 
-- [ ] Make 2 maps of the sites, coloring the points by the `aridity` and `p_mean` columns
-- [ ] Add clear labels, titles, and a color scale that makes sense for each parameter.
-- [ ] Ensure these render as a single image with your choice of `facet_*`, `patchwork`, or `ggpubr`
+-   [ ] Make 2 maps of the sites, coloring the points by the `aridity` and `p_mean` columns
+-   [ ] Add clear labels, titles, and a color scale that makes sense for each parameter.
+-   [ ] Ensure these render as a single image with your choice of `facet_*`, `patchwork`, or `ggpubr`
+
+```{r}
+
+library(patchwork)
+library(AOI)
+
+# AOI::aoi_get()
+
+aridity_map <- ggplot(data = camels, aes(x = gauge_lon, y = gauge_lat)) +
+  borders("state", colour = "grey7", fill = "aliceblue") +
+  geom_point(aes(color = aridity)) +
+  # scale_color_gradient(low = "blue1", high = "red2")+
+  scale_color_viridis_c(name = "Aridity" ,option = "turbo")+
+  ggthemes::theme_map()+
+  labs( title = "Camels Sites Colored by Aridity")+
+  theme(plot.title = element_text(color = "blue4", hjust = .5, size = 15))
+
+pmean_map <- ggplot(data = camels, aes(x = gauge_lon, y = gauge_lat)) +
+  borders("state", colour = "grey7", fill = "aliceblue") +
+  geom_point(aes(color = log(p_mean))) +
+  # scale_color_gradient(low = "red", high = "blue3")+
+  scale_color_viridis_c(name = "Log Mean precip" ,option = "turbo", direction = -1)+
+  ggthemes::theme_map()+
+  labs( title = "Camels Sites Colored Mean Daily Precipitation")+
+  theme(plot.title = element_text(color = "blue4", hjust = .5, size = 15))
+
+aridity_map / pmean_map
+```
 
 # Model Preparation
 
@@ -283,9 +312,9 @@ camels |>
 
 As expected, there is a strong correlation between rainfall and mean flow, and an inverse correlation between aridity and rainfall. While both are high, we are going to see if we can build a model to predict mean flow using aridity and rainfall.
 
-##  Visual EDA
+## Visual EDA
 
-a. Lets start by looking that the 3 dimensions (variables) of this data. We'll start with a XY plot of aridity and rainfall. We are going to use the `scale_color_viridis_c()` function to color the points by the `q_mean` column. This scale functions maps the color of the points to the values in the `q_mean` column along the viridis continuous (c) palette. Because a `scale_color_*` function is applied, it maps to the known color aesthetic in the plot.
+a.  Lets start by looking that the 3 dimensions (variables) of this data. We'll start with a XY plot of aridity and rainfall. We are going to use the `scale_color_viridis_c()` function to color the points by the `q_mean` column. This scale functions maps the color of the points to the values in the `q_mean` column along the viridis continuous (c) palette. Because a `scale_color_*` function is applied, it maps to the known color aesthetic in the plot.
 
 ```{r}
 # Create a scatter plot of aridity vs rainfall
@@ -450,9 +479,9 @@ ggplot(camels_test, aes(x = p2, y = logQmean)) +
   theme_linedraw()
 ```
 
-### Correct version: `prep` -> `bake` -> `predict`
+### Correct version: `prep` -\> `bake` -\> `predict`
 
-To correctly evaluate the model on the test data, we need to apply the same preprocessing steps to the test data that we applied to the training data. We can do this using the `prep` and `bake` functions with the `recipe` object. This ensures  the test data is transformed in the same way as the training data before making predictions.
+To correctly evaluate the model on the test data, we need to apply the same preprocessing steps to the test data that we applied to the training data. We can do this using the `prep` and `bake` functions with the `recipe` object. This ensures the test data is transformed in the same way as the training data before making predictions.
 
 ```{r}
 test_data <-  bake(prep(rec), new_data = camels_test)
@@ -517,7 +546,7 @@ summary(lm_base)$coefficients
 ## Making Predictions
 
 Now that `lm_wf` is a workflow, data is not embedded in the model, we can use augment with the new_data argument to make predictions on the test data.
- 
+
 ```{r}
 #
 lm_data <- augment(lm_wf, new_data = camels_test)
@@ -546,7 +575,10 @@ The real power of this approach is that we can easily switch out the models/reci
 
 ```{r}
 library(baguette)
-rf_model <- rand_forest() %>%
+library(ranger)
+rf_model <- rand_forest(
+  trees          = 100,
+) %>%
   set_engine("ranger", importance = "impurity") %>%
   set_mode("regression")
 
@@ -557,11 +589,13 @@ rf_wf <- workflow() %>%
   add_model(rf_model) %>%
   # Fit the model
   fit(data = camels_train) 
+
+
 ```
 
 ## Predictions
 
-- Make predictions on the test data using the `augment` function and the `new_data` argument.
+-   Make predictions on the test data using the `augment` function and the `new_data` argument.
 
 ```{r}
 rf_data <- augment(rf_wf, new_data = camels_test)
@@ -616,9 +650,9 @@ final <- workflow() |>
 
 A proper evaluation has three parts:
 
-1. **Variable importance** — which predictors is the model actually using? Week 5-2 introduced `vip::vip()` paired with `extract_fit_parsnip()` to pull the underlying model object out of a fitted workflow.
-2. **Test-set metrics** — apply the trained model to data it has never seen.
-3. **A predicted-vs-observed plot** — the visual sanity check; the 1:1 line should run through the cloud.
+1.  **Variable importance** — which predictors is the model actually using? Week 5-2 introduced `vip::vip()` paired with `extract_fit_parsnip()` to pull the underlying model object out of a fitted workflow.
+2.  **Test-set metrics** — apply the trained model to data it has never seen.
+3.  **A predicted-vs-observed plot** — the visual sanity check; the 1:1 line should run through the cloud.
 
 ```{r}
 # Variable importance (Week 5-2 pattern)
@@ -652,18 +686,66 @@ That's the **minimum** end-to-end loop. Q4 asks you to do the full version: swap
 
 Extend the `workflow_set` above (which already contains the linear model and the random forest) by adding two more models from the Week 6-1 zoo:
 
- - [ ] Build an `xgboost` (engine) regression (mode) model using `boost_tree`
- - [ ] Build a neural network model using the `nnet` engine from the `baguette` package using the `bag_mlp` function
- - [ ] Add both to the workflow set and refit against the resamples
- - [ ] Compare all four (linear, random forest, xgboost, neural network) with `autoplot()` and `rank_results()`
- - [ ] Which of the four would you move forward with? Justify the pick in 2–3 sentences.
+-   [ ] Build an `xgboost` (engine) regression (mode) model using `boost_tree`
+-   [ ] Build a neural network model using the `nnet` engine from the `baguette` package using the `bag_mlp` function
+-   [ ] Add both to the workflow set and refit against the resamples
+-   [ ] Compare all four (linear, random forest, xgboost, neural network) with `autoplot()` and `rank_results()`
+-   [ ] Which of the four would you move forward with? Justify the pick in 2–3 sentences.
+
+```{r}
+
+library(flextable)
+# Make XGBoost model 
+show_engines('boost_tree') %>% 
+  mutate(specification = "boost_tree") %>% 
+  flextable()
+
+library(xgboost)
+
+boost_model <- boost_tree(
+  trees          = 100,
+  tree_depth     = 6,
+  learn_rate     = 0.3,
+  loss_reduction = 0,
+  mtry           = 1
+) %>%
+  set_engine("xgboost", importance = "impurity") %>%
+  set_mode("regression")
+
+# Make Neural net model
+library(baguette)
+
+show_engines('bag_mlp') %>% 
+  mutate(specification = "bag_mlp") %>% 
+  flextable()
+
+nn_model <- bag_mlp(
+  hidden_units = 5,
+  penalty      = 0.01,
+  epochs       = 100
+) %>% 
+  set_engine("nnet") %>% 
+  set_mode("regression")
+
+
+# Add new models to workflow 
+
+wf_more <- workflow_set(list(rec), list(lm_model, rf_model, boost_model, nn_model)) %>%
+  workflow_map('fit_resamples', resamples = camels_cv) 
+
+autoplot(wf_more)
+
+rank_results(wf_more, rank_metric = "rsq", select_best = TRUE)
+```
+
+The neural net has the best performance measures (both RMSE and Rsq) which is likely due to the fact that features are all correlated with each other, and it may also be because this simple workflow has low feature dimensionality. Even though this NN is superior, I would move forward with the random forest, since it's results are more interpretable and justifiable and I'm unlikely to hit compute limitations down the line with random forest.
 
 # Bridge to Q4: what the lectures cover
 
 The worked example above stops at a single random-forest fit with default hyperparameters. Q4 asks you to extend it with the rest of the unit. Before starting, re-skim the relevant lecture sections — you'll be lifting patterns directly from them:
 
 | Q4 task | Lecture reference |
-|---|---|
+|------------------------------------|------------------------------------|
 | EDA with `skimr`/`visdat`, normality checks, stratification | **Week 5-1** — *Exploratory Data Analysis*, *Data Normality*, *Stratification* |
 | `recipe` design (impute, dummy, normalize, interact) | **Week 5-1** — *Feature engineering with `recipes`*, *Common normalization techniques* |
 | Workflow sets across multiple models | **Week 5-1** — *Further simplification: `workflowsets`* |
@@ -680,78 +762,77 @@ Borrowing from the workflow presented above, build your own complete ML pipeline
 
 This question asks you to apply the full toolkit from Week 5 and Week 6: EDA, recipes, workflow sets, **spatial cross-validation** (CAMELS is a spatial dataset — random CV will flatter your model), hyperparameter **tuning**, variable importance, and a clean final fit with `last_fit()`. Q4 is the bulk of the lab — budget time accordingly.
 
-:::{.callout-tip}
-**Benchmark**: a well-built model typically achieves **R² > 0.9 under random CV**. Under spatial CV, expect a 0.05–0.10 drop — that's honest generalization, not a failure. **Report both.** If spatial CV stays within ~0.05 of random CV, you have strong evidence your predictors carry transferable signal.
+::: callout-tip
+**Benchmark**: a well-built model typically achieves **R² \> 0.9 under random CV**. Under spatial CV, expect a 0.05–0.10 drop — that's honest generalization, not a failure. **Report both.** If spatial CV stays within \~0.05 of random CV, you have strong evidence your predictors carry transferable signal.
 :::
 
 ## Data prep & EDA (30) — *Week 5-1*
 
- - [ ] Set a seed for reproducibility
- - [ ] Use `skimr::skim()` and/or `visdat::vis_dat()` on your working data. Describe — in 3–4 sentences — what this tells you about missingness, variable types, and distributions. Use this to justify decisions you make in the recipe below.
- - [ ] Visualize the distribution of `q_mean` (and your chosen predictors) — note anything skewed, bimodal, or bounded that will drive a `step_*` choice.
- - [ ] *Optional but encouraged*: run `ape::Moran.I()` on each numeric predictor (Week 5-2 slide *"Which predictors carry geography?"*) to see which features carry spatial structure. High Moran's I = candidate geographic proxy to revisit in the VIP step.
- - [ ] Create an initial split with 75% used for training and 25% for testing. Consider whether stratification (e.g., by `aridity` quartile or hydrologic class) is appropriate and **explain your choice**.
- - [ ] Extract your training and testing sets
+-   [ ] Set a seed for reproducibility
+-   [ ] Use `skimr::skim()` and/or `visdat::vis_dat()` on your working data. Describe — in 3–4 sentences — what this tells you about missingness, variable types, and distributions. Use this to justify decisions you make in the recipe below.
+-   [ ] Visualize the distribution of `q_mean` (and your chosen predictors) — note anything skewed, bimodal, or bounded that will drive a `step_*` choice.
+-   [ ] *Optional but encouraged*: run `ape::Moran.I()` on each numeric predictor (Week 5-2 slide *"Which predictors carry geography?"*) to see which features carry spatial structure. High Moran's I = candidate geographic proxy to revisit in the VIP step.
+-   [ ] Create an initial split with 75% used for training and 25% for testing. Consider whether stratification (e.g., by `aridity` quartile or hydrologic class) is appropriate and **explain your choice**.
+-   [ ] Extract your training and testing sets
 
 ## Recipe (30) — *Week 5-1*
 
- - [ ] Define a formula you want to use to predict `logQmean`
- - [ ] In 5–7 sentences, justify your predictor choice. Consult the downloaded PDF; ground **each** recipe step (log, normalize, interact, naomit, impute, ...) in what the EDA above showed.
- - [ ] Build a recipe that handles those predictors. Your recipe should contain **at least three** `step_*` calls beyond the formula, and each should be there for a reason you can name.
+-   [ ] Define a formula you want to use to predict `logQmean`
+-   [ ] In 5–7 sentences, justify your predictor choice. Consult the downloaded PDF; ground **each** recipe step (log, normalize, interact, naomit, impute, ...) in what the EDA above showed.
+-   [ ] Build a recipe that handles those predictors. Your recipe should contain **at least three** `step_*` calls beyond the formula, and each should be there for a reason you can name.
 
 ## Define 3 models (30) — *Week 6-1*
 
- - [ ] Define a random forest model using the `rand_forest` function (engine `ranger`, mode `regression`)
- - [ ] Define two other models of your choice. The Week 6-1 zoo (`linear_reg`, `boost_tree`, `svm_rbf`, `svm_poly`, `mlp`, `bag_mlp`, `decision_tree`) is a good menu — the comparison table in that deck summarizes strengths and weaknesses.
- - [ ] For each model, briefly note (one sentence) why it's a reasonable candidate for this regression problem — what kind of structure does it capture?
+-   [ ] Define a random forest model using the `rand_forest` function (engine `ranger`, mode `regression`)
+-   [ ] Define two other models of your choice. The Week 6-1 zoo (`linear_reg`, `boost_tree`, `svm_rbf`, `svm_poly`, `mlp`, `bag_mlp`, `decision_tree`) is a good menu — the comparison table in that deck summarizes strengths and weaknesses.
+-   [ ] For each model, briefly note (one sentence) why it's a reasonable candidate for this regression problem — what kind of structure does it capture?
 
 ## Workflow set — compare with *honest* CV (35) — *Week 5-2*
 
 With your preprocessing steps and models defined, build a `workflow_set` and compare the models across resamples. Because CAMELS basins are spatially distributed, a random `vfold_cv` can over-state performance if your model leans on geographic proximity — the Week 5-2 deck walks through this carefully, including when the gap is real and when it isn't.
 
- - [ ] Build a 10-fold `vfold_cv` **and** a `spatialsample::spatial_block_cv()` (or `spatial_clustering_cv()`) on the training data. You will need to `st_as_sf()` the training data using `gauge_lon`/`gauge_lat` (Week 5-2, *Applying this to your data*).
- - [ ] Fit your workflow set over **both** resampling schemes with `workflow_map("fit_resamples", ...)`
- - [ ] Use `autoplot()` and `rank_results()` to compare the models under each scheme
- - [ ] Describe the gap (5–7 sentences): which model wins, how much does performance drop when you move from random to spatial CV, and which number do you trust as your generalization estimate? What does the spread of per-fold metrics tell you about *where* your model struggles? Recall from lecture that a **small** gap is a signal that your predictors carry real transferable signal — not a failed diagnostic.
+-   [ ] Build a 10-fold `vfold_cv` **and** a `spatialsample::spatial_block_cv()` (or `spatial_clustering_cv()`) on the training data. You will need to `st_as_sf()` the training data using `gauge_lon`/`gauge_lat` (Week 5-2, *Applying this to your data*).
+-   [ ] Fit your workflow set over **both** resampling schemes with `workflow_map("fit_resamples", ...)`
+-   [ ] Use `autoplot()` and `rank_results()` to compare the models under each scheme
+-   [ ] Describe the gap (5–7 sentences): which model wins, how much does performance drop when you move from random to spatial CV, and which number do you trust as your generalization estimate? What does the spread of per-fold metrics tell you about *where* your model struggles? Recall from lecture that a **small** gap is a signal that your predictors carry real transferable signal — not a failed diagnostic.
 
 ## Tune the best model (25) — *Week 6-1*
 
- - [ ] Tag **at least two** hyperparameters with `tune()` in your chosen model specification
- - [ ] Build a named grid (e.g. `grid_space_filling()`, `grid_regular()`) — do not just pass an integer to `tune_grid()`. Justify your grid choice in one sentence.
- - [ ] Run `tune_grid()` against your **spatial** resamples with `control_grid(save_pred = TRUE)`
- - [ ] Show the tuning landscape with `autoplot()` and identify the best combination with `show_best()` / `select_best()`
- - [ ] In 2–3 sentences, describe which hyperparameters mattered most and what you learned about the model's sensitivity
+-   [ ] Tag **at least two** hyperparameters with `tune()` in your chosen model specification
+-   [ ] Build a named grid (e.g. `grid_space_filling()`, `grid_regular()`) — do not just pass an integer to `tune_grid()`. Justify your grid choice in one sentence.
+-   [ ] Run `tune_grid()` against your **spatial** resamples with `control_grid(save_pred = TRUE)`
+-   [ ] Show the tuning landscape with `autoplot()` and identify the best combination with `show_best()` / `select_best()`
+-   [ ] In 2–3 sentences, describe which hyperparameters mattered most and what you learned about the model's sensitivity
 
 ## Variable importance (25) — *Week 5-2*
 
- - [ ] Produce a `vip::vip()` plot for your tuned model (pattern: `extract_fit_parsnip() |> vip()`)
- - [ ] Interpret the top predictors (4–6 sentences). Cross-reference against the predictor Moran's I you computed in EDA — are any of the top VIP features *also* highly spatially autocorrelated? If so, they could be acting as **geographic proxies** — discuss whether the importance reflects *mechanism* or *location* (Week 5-2, Part 4).
- - [ ] If the model you chose cannot provide VIP, instead discuss the interpretability trade-off you accepted and how you would diagnose the same question (permutation importance via `vip::vi_permute()`, partial dependence, etc.).
+-   [ ] Produce a `vip::vip()` plot for your tuned model (pattern: `extract_fit_parsnip() |> vip()`)
+-   [ ] Interpret the top predictors (4–6 sentences). Cross-reference against the predictor Moran's I you computed in EDA — are any of the top VIP features *also* highly spatially autocorrelated? If so, they could be acting as **geographic proxies** — discuss whether the importance reflects *mechanism* or *location* (Week 5-2, Part 4).
+-   [ ] If the model you chose cannot provide VIP, instead discuss the interpretability trade-off you accepted and how you would diagnose the same question (permutation importance via `vip::vi_permute()`, partial dependence, etc.).
 
 ## Final fit & evaluate (25) — *Week 6-1*
 
 Use the canonical tidymodels closing move (Week 6-1, *The final fit!*):
 
- - [ ] `finalize_workflow()` your tuned workflow with the best hyperparameters
- - [ ] Run `last_fit()` against your original `initial_split()` object — this trains on the full training set and evaluates on the held-out test set in one call
- - [ ] Use `collect_metrics()` and `collect_predictions()` to report final test-set performance
- - [ ] Create a plot of observed vs predicted `logQmean` on the **test set** with clear title, axis labels, and a compelling color scale (e.g., colored by aridity or region). Include a 1:1 reference line.
- - [ ] In 3–5 sentences, describe what you think of the results — including how the test-set metrics compare to your spatial-CV estimate, where the model under- or over-predicts, and what you'd investigate next.
-
+-   [ ] `finalize_workflow()` your tuned workflow with the best hyperparameters
+-   [ ] Run `last_fit()` against your original `initial_split()` object — this trains on the full training set and evaluates on the held-out test set in one call
+-   [ ] Use `collect_metrics()` and `collect_predictions()` to report final test-set performance
+-   [ ] Create a plot of observed vs predicted `logQmean` on the **test set** with clear title, axis labels, and a compelling color scale (e.g., colored by aridity or region). Include a 1:1 reference line.
+-   [ ] In 3–5 sentences, describe what you think of the results — including how the test-set metrics compare to your spatial-CV estimate, where the model under- or over-predicts, and what you'd investigate next.
 
 # Rubric
 
- - [ ] **Q1**:  Download data (15 pts)
- - [ ] **Q2**:  Make 2 maps (20 pts)
- - [ ] **Q3**:  Add xgboost + neural network to the workflow set (40 pts)
- - [ ] **Q4a**: Data prep & EDA (30 pts)
- - [ ] **Q4b**: Recipe with justification (30 pts)
- - [ ] **Q4c**: Define 3 models (30 pts)
- - [ ] **Q4d**: Workflow set + spatial CV comparison (35 pts)
- - [ ] **Q4e**: Tuning (named grid, ≥ 2 hyperparameters, autoplot) (25 pts)
- - [ ] **Q4f**: VIP interpretation with geographic-proxy lens (25 pts)
- - [ ] **Q4g**: `last_fit()` evaluation & plot (25 pts)
- - [ ] **Well-structured, compelling Qmd deployed as web page** (25 pts)
+-   [ ] **Q1**: Download data (15 pts)
+-   [ ] **Q2**: Make 2 maps (20 pts)
+-   [ ] **Q3**: Add xgboost + neural network to the workflow set (40 pts)
+-   [ ] **Q4a**: Data prep & EDA (30 pts)
+-   [ ] **Q4b**: Recipe with justification (30 pts)
+-   [ ] **Q4c**: Define 3 models (30 pts)
+-   [ ] **Q4d**: Workflow set + spatial CV comparison (35 pts)
+-   [ ] **Q4e**: Tuning (named grid, ≥ 2 hyperparameters, autoplot) (25 pts)
+-   [ ] **Q4f**: VIP interpretation with geographic-proxy lens (25 pts)
+-   [ ] **Q4g**: `last_fit()` evaluation & plot (25 pts)
+-   [ ] **Well-structured, compelling Qmd deployed as web page** (25 pts)
 
 **Total: 300 points** (Q4 = 200 pts / 67%)
 
