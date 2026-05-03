@@ -577,7 +577,7 @@ The real power of this approach is that we can easily switch out the models/reci
 library(baguette)
 library(ranger)
 rf_model <- rand_forest(
-  trees          = 100,
+  trees          = 300,
 ) %>%
   set_engine("ranger", importance = "impurity") %>%
   set_mode("regression")
@@ -703,11 +703,11 @@ show_engines('boost_tree') %>%
 library(xgboost)
 
 boost_model <- boost_tree(
-  trees          = 100,
+  trees          = 300,
   tree_depth     = 6,
   learn_rate     = 0.3,
   loss_reduction = 0,
-  mtry           = 1
+  mtry           = 15
 ) %>%
   set_engine("xgboost", importance = "impurity") %>%
   set_mode("regression")
@@ -775,17 +775,223 @@ This question asks you to apply the full toolkit from Week 5 and Week 6: EDA, re
 -   [ ] Create an initial split with 75% used for training and 25% for testing. Consider whether stratification (e.g., by `aridity` quartile or hydrologic class) is appropriate and **explain your choice**.
 -   [ ] Extract your training and testing sets
 
+```{r}
+
+#| label: initial-EDA
+
+set.seed(123)
+
+pacman::p_load(skimr, visdat)
+
+skim(camels)
+
+vis_dat(camels)
+
+```
+
+The data have generally very little missingness, with the worst variable being geol_2nd_class, which is a categorical variable that is only 79.4% complete. I will remove this variable and impute means for all other NAs. Feature distribution is varied with many left and right skewed distributions as well as some that are approximately normal and several uniform distributions. All features will need to be scaled and normalized.
+
+```{r}
+#| label: feature-selection 
+
+# Soil features from the NRCS use a mix of lab data and pedotransfer methods when data is scarce, so expect camels soil data classes to be correlated with itself.
+
+soil_vars <- c("soil_conductivity", "max_water_content") #compress the majority of available soil data and are known critical paramter inputs in physically based processes like the defecit and constant loss method. Ksat can be a useful aprox for aquifer conductivity and is a critical baseflow paramter
+
+geol_vars <- c("geol_1st_class", "geol_porostiy", "geol_permeability") #may have some cor to soil_var, but different collection methods, and may better capture aquifer differences for baseflow variance
+
+veg_vars <- c("frac_forest", "gvf_diff", "dom_land_cover") #All useful for ET process. May also relate to surface roughness and concentration times for overland flow
+
+
+hydro_vars <- c("runoff_ratio", "stream_elas", "slope_fdc", "baseflow_index", "q5", "q95", "high_q_freq", "low_q_freq", "zero_q_freq") #slope FDC compresses many features for describing middle range of Q, quantiles target hydrograph edges, zero_q_freq targets flow regime 
+
+climate_vars <- c("p_mean", "pet_mean", "p_seasonality", "frac_snow", "high_prec_freq",  "low_prec_freq", "low_prec_timing", "aridity") #will remove aridity capture instead with p and pet, for final model, but want aridity to stratify training testing split.
+
+vars_loc <- c("elev_mean", "slope_mean", "area_gages2")
+
+camels_feat <- camels %>% 
+  select(all_of(soil_vars), all_of(geol_vars), all_of(veg_vars), all_of(hydro_vars), all_of(climate_vars), all_of(vars_loc), gauge_lat, gauge_lon, q_mean) %>% 
+  mutate(log_qmean = log(q_mean)) %>%  #include and transform target 
+select(-q_mean)
+
+  names(camels_feat)
+```
+
+Look at feature correlation
+
+```{r}
+#| label: check-features
+
+# Check feature correlation, may use to refine depending on how well my selected model handles correlated features 
+
+camels_feat %>% select(where(is.numeric)) %>% 
+  vis_cor()
+
+camels_feat %>%
+  select(where(is.numeric)) %>%
+  cor(use = "pairwise.complete.obs") %>%
+  as_tibble(rownames = "feature1") %>%
+  pivot_longer(-feature1, names_to = "feature2", values_to = "correlation") %>%
+  filter(feature1 < feature2) %>%         
+  mutate(abs_cor = abs(correlation)) %>%
+  arrange(desc(abs_cor))
+
+
+```
+
+Check spatial autocorrelation
+
+```{r}
+library(spdep)
+
+coords <- camels_feat %>%
+  select(gauge_lon, gauge_lat) %>%  
+  as.matrix()
+
+neighbors <- knearneigh(coords, k = 5, longlat = TRUE) %>% knn2nb()
+weights   <- nb2listw(neighbors, style = "W")
+
+# Moran's I for all numeric features
+
+morans <- camels_feat %>%
+  select(where(is.numeric)) %>%
+  select(-gauge_lon, -gauge_lat) %>%          
+  map_dfr(~ {
+    morans <- moran.test(.x, weights, na.action = na.omit)
+    tibble(
+      morans_I    = morans$estimate["Moran I statistic"],
+      p_value     = morans$p.value
+    )
+  }, .id = "feature") %>%
+  mutate(morans_I = round(morans_I, 2),
+         p_value = round(p_value, 4)) %>%
+  arrange(desc(morans_I))
+
+library(flextable)
+
+morans %>% flextable()
+```
+
+All features are spatially correlated and and spatial cross validation is needed
+
+```{r}
+camels_feat %>% 
+  drop_na() %>%
+  select(where(is.numeric)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "value") %>%
+  nest(data = value) %>%
+  mutate(
+    test= map(data, ~ shapiro.test(.x$value)),
+    glance_shapiro = map(test, broom::glance)
+  ) %>%
+  unnest(glance_shapiro) %>%
+  select(feature, statistic, p.value) %>%
+  arrange(p.value) 
+
+skim(camels_feat)
+
+```
+
+No features are normal, all require a transformation
+
+```{r}
+#| label: training-testing-split 
+
+# Add aridity strata 
+
+camels_feat <- camels_feat %>%
+  mutate(aridity_class = cut(aridity,
+    breaks = quantile(aridity, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE),
+    labels = c("low", "medium_low", "medium_high", "high"),
+    include.lowest = TRUE
+  )) %>% 
+  select(-aridity) #remove aridity, since I decided to include p and pet instead
+
+
+camels_feat <- camels_feat %>% 
+    drop_na(log_qmean)
+
+split <- initial_split(camels_feat, prop = 0.75, strata = aridity_class)
+
+camels_train <- training(split)
+camels_test <- testing(split)
+
+```
+
+I need to ensure the model works across a variety of systems, so I included an aridity class strata to my training/testing split based on aridity quantiles.
+
 ## Recipe (30) — *Week 5-1*
 
 -   [ ] Define a formula you want to use to predict `logQmean`
 -   [ ] In 5–7 sentences, justify your predictor choice. Consult the downloaded PDF; ground **each** recipe step (log, normalize, interact, naomit, impute, ...) in what the EDA above showed.
+
+See previous question for a in depth look at feature selection justification.
+
 -   [ ] Build a recipe that handles those predictors. Your recipe should contain **at least three** `step_*` calls beyond the formula, and each should be there for a reason you can name.
+
+```{r}
+names(camels_train)
+
+camels_recipe <- recipe(log_qmean ~ ., data = camels_train) %>% 
+  step_rm(gauge_lon, gauge_lat) %>% #remove lat and lon from formula
+  step_impute_mean(all_numeric_predictors()) %>% #fill in NA numerics with imputed means, all features are 96.6% complete or higher
+  step_novel(all_factor_predictors()) %>% 
+  step_dummy(all_factor_predictors()) %>% # there are three factor features 
+  step_normalize(all_numeric_predictors()) #standardize all numeric factors
+
+
+
+prepped <- prep(camels_recipe, training = camels_train)
+
+baked <- bake(prepped, new_data = NULL)
+
+skim(baked)
+```
+
+I selected features that are generally considered important parameters and forcing variables for process driven physical models common in engineering modeling approaches. I aimed to select features that reduced dimentionality by compressing multiple other variables. For example, I used Ksat and max water storage to because they compressed the majority of available soil data and are known critical paramter inputs in physically based processes like the defecit and constant loss method. I also excluded variables with obvious correlations to others, like Aridity to PET and and Precip. Even with this, my features are highly correlated with each other and my need to be refined. The level of feature correlation may also lead to better performance for a neural net model.
 
 ## Define 3 models (30) — *Week 6-1*
 
 -   [ ] Define a random forest model using the `rand_forest` function (engine `ranger`, mode `regression`)
 -   [ ] Define two other models of your choice. The Week 6-1 zoo (`linear_reg`, `boost_tree`, `svm_rbf`, `svm_poly`, `mlp`, `bag_mlp`, `decision_tree`) is a good menu — the comparison table in that deck summarizes strengths and weaknesses.
 -   [ ] For each model, briefly note (one sentence) why it's a reasonable candidate for this regression problem — what kind of structure does it capture?
+
+```{r}
+
+forest_model <- rand_forest(
+  trees = 500,
+   mtry  = 10,        
+   min_n = 5 
+  ) %>% 
+  set_engine("ranger", importance = "impurity") %>%
+  set_mode("regression")
+
+boost_model <- boost_tree(
+  trees = 500,
+  tree_depth = 4,
+  learn_rate = 0.05,
+  loss_reduction = 0,
+  mtry = 15,
+  min_n = 5) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+# Make Neural net model
+
+nn_model <- bag_mlp(
+  hidden_units = 10,
+  penalty      = 0.001,
+  epochs       = 200
+) %>% 
+  set_engine("nnet") %>% 
+  set_mode("regression")
+```
+
+Random Forest - Can capture non linear interactions well
+
+XGBoost - Often outperforms random forest when there are feature interactions
+
+Neural Net - my features are very correlated with each other, so the NN may be a good choice
 
 ## Workflow set — compare with *honest* CV (35) — *Week 5-2*
 
@@ -796,6 +1002,41 @@ With your preprocessing steps and models defined, build a `workflow_set` and com
 -   [ ] Use `autoplot()` and `rank_results()` to compare the models under each scheme
 -   [ ] Describe the gap (5–7 sentences): which model wins, how much does performance drop when you move from random to spatial CV, and which number do you trust as your generalization estimate? What does the spread of per-fold metrics tell you about *where* your model struggles? Recall from lecture that a **small** gap is a signal that your predictors carry real transferable signal — not a failed diagnostic.
 
+```{r}
+
+library(spatialsample)
+
+normal_cv <- vfold_cv(data = camels_train, v = 10)
+
+# Spatial CV 
+
+train_sf <- camels_train %>% 
+  st_as_sf(coords = c("gauge_lon", "gauge_lat"),
+           crs = 4326, remove = FALSE) 
+
+block_cv <- spatial_block_cv(train_sf, v = 10)
+
+print(block_cv, n = 3)
+# plot(train_sf)
+
+wf_radom_cv <- workflow_set(list(camels_recipe), 
+                            list(forest_model, boost_model, nn_model)) %>% 
+  workflow_map("fit_resamples", resamples = normal_cv)
+
+autoplot(wf_radom_cv)
+
+
+wf_obj <- workflow_set(list(camels_recipe), list(forest_model, boost_model, nn_model)) %>% 
+  workflow_map("fit_resamples", resamples = block_cv)
+
+autoplot(wf_obj)
+rank_results(wf_obj)
+
+rank_results(wf_radom_cv)
+
+# need to answere question
+```
+
 ## Tune the best model (25) — *Week 6-1*
 
 -   [ ] Tag **at least two** hyperparameters with `tune()` in your chosen model specification
@@ -804,11 +1045,61 @@ With your preprocessing steps and models defined, build a `workflow_set` and com
 -   [ ] Show the tuning landscape with `autoplot()` and identify the best combination with `show_best()` / `select_best()`
 -   [ ] In 2–3 sentences, describe which hyperparameters mattered most and what you learned about the model's sensitivity
 
+```{r}
+boost_model <- boost_tree(
+  trees = 500,
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  mtry = tune(),
+  min_n = tune()) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+tune_wf <- workflow(camels_recipe, boost_model)
+
+grid <-grid_latin_hypercube(
+  tree_depth(range = c(3, 6)),
+  learn_rate(range = c(-2, -1)),  # log10 scale so 0.01 to 0.1
+  mtry(range = c(10, 25)),
+  min_n(range  = c(3, 10)),
+  loss_reduction(range  = c(-5, 0)),   # log10
+  size = 30)
+  
+boost_tune <- tune_grid(
+  tune_wf, 
+  resamples = block_cv,
+  grid = grid,
+   metrics = metric_set(rmse, rsq, mae)
+)
+
+
+autoplot(boost_tune)
+
+show_best(boost_tune, metric = "rmse", n = 5)
+
+best_params <- select_best(boost_tune, metric = "rmse")
+
+final_workflow <- tune_wf %>%
+  finalize_workflow(best_params)
+
+final_fit <- last_fit(final_workflow, split)
+```
+
 ## Variable importance (25) — *Week 5-2*
 
 -   [ ] Produce a `vip::vip()` plot for your tuned model (pattern: `extract_fit_parsnip() |> vip()`)
 -   [ ] Interpret the top predictors (4–6 sentences). Cross-reference against the predictor Moran's I you computed in EDA — are any of the top VIP features *also* highly spatially autocorrelated? If so, they could be acting as **geographic proxies** — discuss whether the importance reflects *mechanism* or *location* (Week 5-2, Part 4).
 -   [ ] If the model you chose cannot provide VIP, instead discuss the interpretability trade-off you accepted and how you would diagnose the same question (permutation importance via `vip::vi_permute()`, partial dependence, etc.).
+
+```{r}
+extract_fit_parsnip(final_fit) %>% 
+  vip(num_features = 10) +
+  labs(title = "Boosted tree: top predictors of mean streamflow") +
+  theme_linedraw(14)
+
+#answere q 
+```
 
 ## Final fit & evaluate (25) — *Week 6-1*
 
@@ -819,6 +1110,19 @@ Use the canonical tidymodels closing move (Week 6-1, *The final fit!*):
 -   [ ] Use `collect_metrics()` and `collect_predictions()` to report final test-set performance
 -   [ ] Create a plot of observed vs predicted `logQmean` on the **test set** with clear title, axis labels, and a compelling color scale (e.g., colored by aridity or region). Include a 1:1 reference line.
 -   [ ] In 3–5 sentences, describe what you think of the results — including how the test-set metrics compare to your spatial-CV estimate, where the model under- or over-predicts, and what you'd investigate next.
+
+```{r}
+collect_metrics(final_fit)
+
+pred <- collect_predictions(final_fit) 
+  
+
+pred %>% 
+  ggplot(aes(x = .pred, y = log_qmean))+
+  geom_point()+
+  geom_abline(slope = 1, intercept = 0)
+  
+```
 
 # Rubric
 
