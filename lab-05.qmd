@@ -215,7 +215,7 @@ camels <- map(remote_files, read_delim, show_col_types = FALSE) |>
 
 # Question 1: Your Turn (15 points)
 
--   [x] Make sure all data and the PDF are downloaded into you data directory
+-   [ ] Make sure all data and the PDF are downloaded into you data directory
 -   [ ] From the documentation PDF, report what `zero_q_freq` represents
 
 P_q_zero is the frequency of days with a discharge of 0 per day. Stated differently, it is a way to understand the flow regime of a basin.
@@ -810,7 +810,7 @@ climate_vars <- c("p_mean", "pet_mean", "p_seasonality", "frac_snow", "high_prec
 vars_loc <- c("elev_mean", "slope_mean", "area_gages2")
 
 camels_feat <- camels %>% 
-  select(all_of(soil_vars), all_of(geol_vars), all_of(veg_vars), all_of(hydro_vars), all_of(climate_vars), all_of(vars_loc), gauge_lat, gauge_lon, q_mean) %>% 
+  select(all_of(soil_vars), all_of(geol_vars), all_of(veg_vars), all_of(hydro_vars), all_of(climate_vars), all_of(vars_loc), gauge_lat, gauge_lon, q_mean, gauge_id) %>% 
   mutate(log_qmean = log(q_mean)) %>%  #include and transform target 
 select(-q_mean)
 
@@ -892,7 +892,7 @@ skim(camels_feat)
 
 ```
 
-No features are normal, all require a transformation
+No features are normal
 
 ```{r}
 #| label: training-testing-split 
@@ -933,7 +933,8 @@ See previous question for a in depth look at feature selection justification.
 names(camels_train)
 
 camels_recipe <- recipe(log_qmean ~ ., data = camels_train) %>% 
-  step_rm(gauge_lon, gauge_lat) %>% #remove lat and lon from formula
+  step_rm(gauge_lon, gauge_lat, aridity_class) %>% #remove lat and lon from formula
+  update_role(gauge_id, new_role = "ID") %>% 
   step_impute_mean(all_numeric_predictors()) %>% #fill in NA numerics with imputed means, all features are 96.6% complete or higher
   step_novel(all_factor_predictors()) %>% 
   step_dummy(all_factor_predictors()) %>% # there are three factor features 
@@ -1023,6 +1024,7 @@ wf_radom_cv <- workflow_set(list(camels_recipe),
                             list(forest_model, boost_model, nn_model)) %>% 
   workflow_map("fit_resamples", resamples = normal_cv)
 
+
 autoplot(wf_radom_cv)
 
 
@@ -1030,12 +1032,14 @@ wf_obj <- workflow_set(list(camels_recipe), list(forest_model, boost_model, nn_m
   workflow_map("fit_resamples", resamples = block_cv)
 
 autoplot(wf_obj)
+
 rank_results(wf_obj)
 
 rank_results(wf_radom_cv)
 
-# need to answere question
 ```
+
+The XGboost is the clear winner in terms of both rsq and RMSE. For this model, I'm most interested in how much of the variability of streamflow can be explained given my features, so I will use Rsq as my main metric. Further, this means I don't have to bother moving RMSE out of log space since I transformed it outside of the tidymodels pipe. My random CV has a rsq of .991 and my spatial cv drops to .986, which indicates that I am picking up on real relationships with my features and target rather than the spatial autocorreltion I observed earlier. My XGBoost standard error for the rsq on the spatial cv is 0.00344 indicating that my folds have a tight spread of performance and I'm not randomly having some low performing spatial blocks.
 
 ## Tune the best model (25) — *Week 6-1*
 
@@ -1080,11 +1084,16 @@ show_best(boost_tune, metric = "rmse", n = 5)
 
 best_params <- select_best(boost_tune, metric = "rmse")
 
+
+# Final fit
+
 final_workflow <- tune_wf %>%
   finalize_workflow(best_params)
 
 final_fit <- last_fit(final_workflow, split)
 ```
+
+Tree depth and and randomly selected predictors both appeared to be important. Shallower trees worked better and more predictors also increased performance clearly.
 
 ## Variable importance (25) — *Week 5-2*
 
@@ -1101,6 +1110,8 @@ extract_fit_parsnip(final_fit) %>%
 #answere q 
 ```
 
+All three of my top predictors are spatially autocorrelated. They certainly could be some level of geographic proxy, but they are also all critical for runoff processes. Q 95 is critical to understand what a system peak Q is, run off ratio compresses many physically critical processes, like ET and deep percolation to groundwater, and p_mean is probably the most critical environmental forcing variable in any system. Given this, and my low drop in kfold testing between my cv structures, I think my model is picking up mostly on mechanistic processes rather than just performing geographic predictions.
+
 ## Final fit & evaluate (25) — *Week 6-1*
 
 Use the canonical tidymodels closing move (Week 6-1, *The final fit!*):
@@ -1114,15 +1125,27 @@ Use the canonical tidymodels closing move (Week 6-1, *The final fit!*):
 ```{r}
 collect_metrics(final_fit)
 
-pred <- collect_predictions(final_fit) 
-  
+pred <- collect_predictions(final_fit) %>% 
+  bind_cols(testing(split) %>% 
+              select(gauge_id, aridity_class))
 
 pred %>% 
-  ggplot(aes(x = .pred, y = log_qmean))+
+  ggplot(aes(x = .pred, y = log_qmean, color = aridity_class))+
   geom_point()+
-  geom_abline(slope = 1, intercept = 0)
+  geom_abline(slope = 1, intercept = 0, color = 'steelblue')+
+  labs(
+    x = "Predicted",
+    y = "Observed",
+    color = "Aridity Class",
+    title = "Obs. vs. Predicted plot for training data"
+  )+
+  theme_bw()
   
+
+
 ```
+
+My model had a rsq of .991 with the best performance low to medium-high aridity basins. Performance slipped a in the high aridity basins, which is likely because there are fewer basins with a very high aridity, leading to a larger spread in that class and the fact that arid basins naturally have more ephemeral and varied conditions. In these conditions, the model is tending to over predict flow. My model is likely a bit over fit, and my next step would be to return to feature selection and see how much feature dimensionality I could remove before performance starts slipping. Specifically, I wold remove values associated with flow like Q95, since I would be most interested in applying this model to un-gaged basins anyways.
 
 # Rubric
 
