@@ -745,7 +745,7 @@ The neural net has the best performance measures (both RMSE and Rsq) which is li
 The worked example above stops at a single random-forest fit with default hyperparameters. Q4 asks you to extend it with the rest of the unit. Before starting, re-skim the relevant lecture sections — you'll be lifting patterns directly from them:
 
 | Q4 task | Lecture reference |
-|------------------------------------|------------------------------------|
+|----|----|
 | EDA with `skimr`/`visdat`, normality checks, stratification | **Week 5-1** — *Exploratory Data Analysis*, *Data Normality*, *Stratification* |
 | `recipe` design (impute, dummy, normalize, interact) | **Week 5-1** — *Feature engineering with `recipes`*, *Common normalization techniques* |
 | Workflow sets across multiple models | **Week 5-1** — *Further simplification: `workflowsets`* |
