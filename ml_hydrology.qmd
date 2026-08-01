@@ -1,0 +1,934 @@
+---
+title: 'Machine Learning in Hydrology'
+subtitle: 'Predicting mean streamflow across the CAMELS basins with tidymodels'
+author:
+  - name: Nick Penzel
+    email: n.penzel@colostate.edu
+format:
+   html:
+    toc: true
+    include-before-body: ../slides/header.html
+    include-after-body:  ../slides/footer-annotations.html
+---
+
+```{r}
+#| message: false
+#| echo: false
+#| warning: false
+library(tidyverse)
+library(tidymodels)
+```
+
+# Introduction
+
+This investigation explores predictive modeling in hydrology using the `tidymodels` framework and the CAMELS (Catchment Attributes and Meteorology for Large-sample Studies) dataset.
+
+`tidymodels` is an R framework designed for machine learning and statistical modeling. Built on the principles of the `tidyverse`, it provides a consistent and modular approach to tasks like data preprocessing, model training, evaluation, and validation. By leveraging the strengths of packages such as `recipes`, `parsnip`, and `yardstick`, `tidymodels` streamlines the modeling workflow, making it easier to experiment with different models while maintaining reproducibility and interpretability.
+
+The CAMELS dataset is a widely used resource in hydrology and environmental science, providing data on over 500 self-draining river basins across the United States. It includes meteorological forcings, streamflow observations, and catchment attributes such as land cover, topography, and soil properties. This dataset is particularly valuable for large-sample hydrology studies, enabling researchers to develop and test models across diverse climatic and physiographic conditions.
+
+The focus here is predicting mean streamflow for these basins using their associated characteristics. CAMELS has been instrumental in calibrating hydrologic models (parameter tuning in models like SAC-SMA, VIC, and HBV), training machine learning models (deep learning such as LSTMs and regression-based streamflow predictions), understanding model behavior (generalization, uncertainty analysis, and the role of catchment attributes), benchmarking and regionalization (large-scale model comparisons and parameter transfer to ungauged basins), and hybrid modeling (enhancing physics-based models with machine learning for bias correction). A notable study by Kratzert et al. (2019) demonstrated that LSTMs can outperform conceptual models in streamflow prediction.
+
+# What's in the data?
+
+Each record in the CAMELS dataset represents a unique river basin, identified by an outlet USGS NWIS `gauge_id`. The dataset contains a mix of continuous and categorical variables, including meteorological, catchment, and streamflow summaries.
+
+The data used here are the basin-level summaries. For example, for row 1 of the data (Gage: 01013500), all of the attribute values are areal averages over the drainage basin shown below, while the flow metrics are associated with the outlet gage (in red). `dataRetrieval::findNLDI()` fetches the basin polygon and upstream flowlines.
+
+```{r}
+#| message: false
+
+# Use the `findNLDI` function to get the basin and flowlines for the first gauge
+basin <- dataRetrieval::findNLDI(nwis = "01013500", 
+                                 # Navigate the "upper tributaries" of the basin
+                                 nav = "UT", 
+                                 # Return the basin and flowlines
+                                 find = c("basin", "flowlines"))
+
+# Plot the basin, flowlines, and gauge ...
+ggplot() + 
+  geom_sf(data = basin$basin, fill = "lightblue") + 
+  geom_sf(data = basin$UT_flowlines, color = "blue") + 
+  geom_sf(data = basin$origin, color = "red") + 
+  theme_minimal()
+
+```
+
+The worked example that follows establishes the minimum tidymodels pipeline, split, recipe, workflow, fit, evaluate, and the later sections extend that foundation into a full pipeline with a workflow-set model comparison, spatial cross-validation, variable importance, hyperparameter tuning, and a finalized fit.
+
+# Data Download
+
+The libraries below support the full workflow.
+
+```{r}
+#| message: false
+
+pacman::p_load(
+  tidyverse,
+  tidymodels,
+  powerjoin,
+  glue,
+  vip,
+  baguette
+)
+  
+```
+
+The CAMELS dataset is archived on [Zenodo](https://zenodo.org/records/15529996). The file listing contains a set of `.txt` files (climate, geology, soil, topography, vegetation, hydrology summaries per basin), along with a PDF describing every column. Each file has a direct-download link of the form `https://zenodo.org/records/15529996/files/<filename>?download=1`, so all downloads point at that root.
+
+```{r}
+root <- 'https://zenodo.org/records/15529996/files'
+```
+
+The documentation PDF provides descriptions for the various columns, many of which are not self-explanatory. `download.file` pulls it into the `data/` directory, with `mode = "wb"` for binary files like PDFs.
+
+```{r}
+#| eval: false
+download.file('https://zenodo.org/records/15529996/files/camels_attributes_v2.0.pdf?download=1',  destfile = 'data/camels_attributes_v2.0.pdf', mode = 'wb')
+
+
+```
+
+Rather than downloading each `.txt` data file individually, the download is vectorized. First a vector stores the data types and file names to download.
+
+```{r}
+types <- c("clim", "geol", "soil", "topo", "vege", "hydro")
+```
+
+Using `glue`, the needed URLs and file names are constructed. Zenodo direct-download links end with `?download=1`, so that is appended to the remote URL while the local filename is kept clean.
+
+```{r}
+# Where the files live online ...
+remote_files  <- glue('{root}/camels_{types}.txt?download=1')
+# where we want to download the data ...
+local_files   <- glue('data/camels_{types}.txt')
+```
+
+`walk2` from the `purrr` package applies a function to multiple arguments in parallel, much like `map2` works over paired lists. Here it passes each paired element of `remote_files` and `local_files` to `download.file`, with `quiet = TRUE` to suppress output.
+
+```{r}
+#| eval: false
+walk2(remote_files, local_files, download.file, quiet = TRUE)
+```
+
+Once downloaded, the data is read into R with `readr::read_delim()`, again using `map` to apply the function across the `local_files` list rather than one file at a time.
+
+```{r}
+# Read and merge data
+camels <- map(local_files, read_delim, show_col_types = FALSE) 
+```
+
+This gives a list of data.frames, one per file, that need to be merged into a single table on the shared `gauge_id` column. Since there are more than two tables, a more robust tool than the standard `*_join` functions is needed. The `powerjoin` package provides a flexible way to join lists of data.frames, supporting inner, left, right, full, semi, anti, and cross joins. Since all data is to be kept, a full join merges every data.frame in the list by `gauge_id`.
+
+```{r}
+camels <- power_full_join(camels ,by = 'gauge_id')
+```
+
+# Reporting a Column Definition {#q1}
+
+With all data and the PDF downloaded into the data directory, the documentation PDF defines `zero_q_freq`. P_q_zero is the frequency of days with a discharge of 0 per day. Stated differently, it is a way to understand the flow regime of a basin.
+
+## Exploratory Data Analysis
+
+A map of the sites uses the `borders()` ggplot function to add state boundaries, with points initially colored by the mean flow (`q_mean`) at each site.
+
+```{r}
+#| warning: false
+ggplot(data = camels, aes(x = gauge_lon, y = gauge_lat)) +
+  borders("state", colour = "gray50") +
+  geom_point(aes(color = q_mean)) +
+  scale_color_gradient(low = "pink", high = "dodgerblue") +
+  ggthemes::theme_map()
+  
+```
+
+# Mapping Aridity and Precipitation {#q2}
+
+Two maps of the sites color the points by the `aridity` and `p_mean` columns, with clear labels, titles, and appropriate color scales, arranged as a single image with `patchwork`.
+
+```{r}
+
+library(patchwork)
+library(AOI)
+
+# AOI::aoi_get()
+
+aridity_map <- ggplot(data = camels, aes(x = gauge_lon, y = gauge_lat)) +
+  borders("state", colour = "grey7", fill = "aliceblue") +
+  geom_point(aes(color = aridity)) +
+  # scale_color_gradient(low = "blue1", high = "red2")+
+  scale_color_viridis_c(name = "Aridity" ,option = "turbo")+
+  ggthemes::theme_map()+
+  labs( title = "Camels Sites Colored by Aridity")+
+  theme(plot.title = element_text(color = "blue4", hjust = .5, size = 15))
+
+pmean_map <- ggplot(data = camels, aes(x = gauge_lon, y = gauge_lat)) +
+  borders("state", colour = "grey7", fill = "aliceblue") +
+  geom_point(aes(color = log(p_mean))) +
+  # scale_color_gradient(low = "red", high = "blue3")+
+  scale_color_viridis_c(name = "Log Mean precip" ,option = "turbo", direction = -1)+
+  ggthemes::theme_map()+
+  labs( title = "Camels Sites Colored Mean Daily Precipitation")+
+  theme(plot.title = element_text(color = "blue4", hjust = .5, size = 15))
+
+aridity_map / pmean_map
+```
+
+# Model Preparation
+
+As an initial analysis, the relationship between aridity, rainfall, and mean flow is examined, starting by checking for significant correlation between these variables, dropping NAs and viewing only the three columns of interest.
+
+```{r}
+camels |> 
+  select(aridity, p_mean, q_mean) |> 
+  drop_na() |> 
+  cor()
+```
+
+As expected, there is a strong correlation between rainfall and mean flow, and an inverse correlation between aridity and rainfall. While both are high, the next step is to build a model to predict mean flow using aridity and rainfall.
+
+## Visual EDA
+
+Looking at the three dimensions of this data starts with an XY plot of aridity and rainfall, using `scale_color_viridis_c()` to color the points by `q_mean` along the viridis continuous palette.
+
+```{r}
+# Create a scatter plot of aridity vs rainfall
+ggplot(camels, aes(x = aridity, y = p_mean)) +
+  # Add points colored by mean flow
+  geom_point(aes(color = q_mean)) +
+  # Add a linear regression line
+  geom_smooth(method = "lm", color = "red", linetype = 2) +
+  # Apply the viridis color scale
+  scale_color_viridis_c() +
+  # Add a title, axis labels, and theme (w/ legend on the bottom)
+  theme_linedraw() + 
+  theme(legend.position = "bottom") + 
+  labs(title = "Aridity vs Rainfall vs Runoff",
+       x = "Aridity",
+       y = "Rainfall",
+       color = "Mean Flow")
+```
+
+There is a relationship between rainfall, aridity, and runoff, but it looks like an exponential decay function and is certainly not linear. To test a transformation, the x and y axes are log transformed with `scale_x_log10()` and `scale_y_log10()`.
+
+```{r}
+ggplot(camels, aes(x = aridity, y = p_mean)) +
+  geom_point(aes(color = q_mean)) +
+  geom_smooth(method = "lm") +
+  scale_color_viridis_c() +
+  # Apply log transformations to the x and y axes
+  scale_x_log10() + 
+  scale_y_log10() +
+  theme_linedraw() +
+  theme(legend.position = "bottom") + 
+  labs(title = "Aridity vs Rainfall vs Runoff",
+       x = "Aridity",
+       y = "Rainfall",
+       color = "Mean Flow")
+```
+
+The log-log relationship between aridity and rainfall is more linear. This is a common relationship in hydrology and is often used to estimate rainfall in ungauged basins. However, once the data is transformed, the lack of spread in the streamflow data is evident, with high mean flow values compressed to the low end of aridity and high end of rainfall. To address this, the `trans` argument in `scale_color_viridis_c()` log transforms the color scale as well.
+
+```{r}
+ggplot(camels, aes(x = aridity, y = p_mean)) +
+  geom_point(aes(color = q_mean)) +
+  geom_smooth(method = "lm") +
+  # Apply a log transformation to the color scale
+  scale_color_viridis_c(trans = "log") +
+  scale_x_log10() + 
+  scale_y_log10() +
+  theme_linedraw() +
+  theme(legend.position = "bottom",
+        # Expand the legend width ...
+        legend.key.width = unit(2.5, "cm"),
+        legend.key.height = unit(.5, "cm")) + 
+  labs(title = "Aridity vs Rainfall vs Runoff",
+       x = "Aridity",
+       y = "Rainfall",
+       color = "Mean Flow")
+```
+
+Treating these three right-skewed variables as log transformed gives a more evenly spread relationship between aridity, rainfall, and mean flow, a good sign for building a model to predict mean flow using aridity and rainfall.
+
+# Model Building
+
+## Splitting the Data
+
+First a seed is set for reproducibility, then the `q_mean` column is transformed to a log scale. Since it is error prone to apply transformations to the outcome variable within a `recipe`, this is done a priori. The data is then split into training (80%) and testing (20%) sets, with stratification left off in this minimal example. A 10-fold cross validation dataset is also created to help evaluate multi-model setups.
+
+```{r}
+set.seed(123)
+# Bad form to perform simple transformations on the outcome variable within a 
+# recipe. So, we'll do it here.
+camels <- camels |> 
+  mutate(logQmean = log(q_mean))
+
+# Generate the split
+camels_split <- initial_split(camels, prop = 0.8)
+camels_train <- training(camels_split)
+camels_test  <- testing(camels_split)
+
+camels_cv <- vfold_cv(camels_train, v = 10)
+```
+
+## Preprocessor: `recipe`
+
+A `recipe` declares a preprocessing pipeline once, estimates its parameters on the training data, and reuses it everywhere, across folds, the test set, and new predictions. The visual EDA showed that `q_mean`, `aridity`, and `p_mean` are right skewed and helped by log transformations, and that the relationship between `aridity` and `p_mean` is non-linear and helped by an interaction term. A small recipe encodes those decisions.
+
+```{r}
+# Create a recipe to preprocess the data
+rec <-  recipe(logQmean ~ aridity + p_mean, data = camels_train) %>%
+  # Log transform the predictor variables (aridity and p_mean)
+  step_log(all_predictors()) %>%
+  # Add an interaction term between aridity and p_mean
+  step_interact(terms = ~ aridity:p_mean) |> 
+  # Drop any rows with missing values in the pred
+  step_naomit(all_predictors(), all_outcomes())
+```
+
+## Naive base `lm` approach
+
+To start, a linear model is fit to the data. `prep` and `bake` apply the recipe to the training data, then a linear model is fit.
+
+```{r}
+# Prepare the data
+baked_data <- prep(rec, camels_train) |> 
+  bake(new_data = NULL)
+
+# Interaction with lm
+#  Base lm sets interaction terms with the * symbol
+lm_base <- lm(logQmean ~ aridity * p_mean, data = baked_data)
+summary(lm_base)
+
+# Sanity Interaction term from recipe ... these should be equal!!
+summary(lm(logQmean ~ aridity + p_mean + aridity_x_p_mean, data = baked_data))
+```
+
+## Validating on the Test Data
+
+A model's ability to predict on new data is the most important part of the modeling process; how well it does on data it has already seen matters far less. With the base R approach, this has to be done carefully, and two common mistakes illustrate why.
+
+The first mistake uses `broom::augment` directly on the test data, which gives incorrect results because the preprocessing steps defined in the recipe have not been applied to the test data.
+
+```{r}
+#| error: true
+nrow(camels_test)
+nrow(camels_train)
+broom::augment(lm_base, data = camels_test)
+```
+
+The second mistake uses `predict` directly on the test data, which fails for the same reason: the recipe's preprocessing has not been applied, so the scales are way off.
+
+```{r}
+#| error: true
+camels_test$p2 = predict(lm_base, newdata = camels_test)
+
+## Scales way off!
+ggplot(camels_test, aes(x = p2, y = logQmean)) +
+  geom_point() +
+  # Linear fit line, no error bands
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +
+  # 1:1 line
+  geom_abline(color = "red", linewidth = 1) +
+  labs(title = "Linear Model Using `predict()`",
+       x = "Predicted Log Mean Flow",
+       y = "Observed Log Mean Flow") +
+  theme_linedraw()
+```
+
+The correct approach applies the same preprocessing steps to the test data using `prep` and `bake` with the recipe, ensuring the test data is transformed the same way as the training data before predictions.
+
+```{r}
+test_data <-  bake(prep(rec), new_data = camels_test)
+test_data$lm_pred <- predict(lm_base, newdata = test_data)
+```
+
+## Model Evaluation: statistical and visual
+
+With predicted values in hand, the model is evaluated using the `metrics` function from the `yardstick` package, which calculates RMSE, R-squared, and MAE between observed and predicted values, alongside a scatter plot of observed vs predicted colored by aridity.
+
+```{r}
+metrics(test_data, truth = logQmean, estimate = lm_pred)
+
+ggplot(test_data, aes(x = logQmean, y = lm_pred, colour = aridity)) +
+  # Apply a gradient color scale
+  scale_color_gradient2(low = "brown", mid = "orange", high = "darkgreen") +
+  geom_point() +
+  geom_abline(linetype = 2) +
+  theme_linedraw() + 
+  labs(title = "Linear Model: Observed vs Predicted",
+       x = "Observed Log Mean Flow",
+       y = "Predicted Log Mean Flow",
+       color = "Aridity")
+```
+
+That approach was burdensome, error prone, and would be worthless for testing a different algorithm, which motivates a better approach.
+
+## Using a `workflow` instead
+
+`tidymodels` provides a framework for building and evaluating models using a consistent and modular workflow. The `workflows` package bundles a preprocessor (recipe or formula) and a model spec into a single object, then fits them together, making it easier to experiment with different models, compare performance, and ensure reproducibility. Here `linear_reg()` defines a linear regression model with the `lm` engine in regression mode, the recipe is added to the workflow, the model is fit to the training data, and the coefficients are extracted.
+
+```{r}
+# Define model
+lm_model <- linear_reg() %>%
+  # define the engine
+  set_engine("lm") %>%
+  # define the mode
+  set_mode("regression")
+
+# Instantiate a workflow ...
+lm_wf <- workflow() %>%
+  # Add the recipe
+  add_recipe(rec) %>%
+  # Add the model
+  add_model(lm_model) %>%
+  # Fit the model to the training data
+  fit(data = camels_train) 
+
+# Extract the model coefficients from the workflow
+summary(extract_fit_engine(lm_wf))$coefficients
+```
+
+Comparing against the `lm_base` model confirms the results replicate.
+
+```{r}
+# From the base implementation
+summary(lm_base)$coefficients
+```
+
+## Making Predictions
+
+Now that `lm_wf` is a workflow, the data is not embedded in the model, so `augment` with the `new_data` argument makes predictions on the test data.
+
+```{r}
+#
+lm_data <- augment(lm_wf, new_data = camels_test)
+dim(lm_data)
+```
+
+## Model Evaluation: statistical and visual
+
+As with EDA, graphical and statistical evaluation is key. The `metrics` function extracts the default regression metrics (rmse, rsq, mae) between observed and predicted mean streamflow, and a scatter plot colored by aridity visualizes performance.
+
+```{r}
+metrics(lm_data, truth = logQmean, estimate = .pred)
+
+ggplot(lm_data, aes(x = logQmean, y = .pred, colour = aridity)) +
+  scale_color_viridis_c() +
+  geom_point() +
+  geom_abline() +
+  theme_linedraw()
+```
+
+## Switching Models
+
+The real power of this approach is that models and recipes can be swapped out easily. Here a random forest model predicts mean streamflow instead, defined with `rand_forest`, the `ranger` engine, and regression mode, then added to the recipe, fit, and evaluated.
+
+```{r}
+library(baguette)
+library(ranger)
+rf_model <- rand_forest(
+  trees          = 300,
+) %>%
+  set_engine("ranger", importance = "impurity") %>%
+  set_mode("regression")
+
+rf_wf <- workflow() %>%
+  # Add the recipe
+  add_recipe(rec) %>%
+  # Add the model
+  add_model(rf_model) %>%
+  # Fit the model
+  fit(data = camels_train) 
+
+
+```
+
+Predictions are made on the test data with `augment` and the `new_data` argument.
+
+```{r}
+rf_data <- augment(rf_wf, new_data = camels_test)
+dim(rf_data)
+```
+
+The model is evaluated with `metrics` and a scatter plot of observed vs predicted, colored by aridity.
+
+```{r}
+metrics(rf_data, truth = logQmean, estimate = .pred)
+
+ggplot(rf_data, aes(x = logQmean, y = .pred, colour = aridity)) +
+  scale_color_viridis_c() +
+  geom_point() +
+  geom_abline() +
+  theme_linedraw()
+```
+
+Setting up a completely new model reused everything done for the linear model, which is the power of the `tidymodels` framework. That said, there is still some repetition, and more importantly, this is eyeballing metrics on a single train/test split rather than comparing the two models head-to-head under a fair, resampled evaluation. `workflow_set()` does both in a few lines.
+
+## A `workflowset` approach
+
+`workflow_set` compares multiple models on the same data, defining a set of workflows, fitting them to the same data, and evaluating their performance using a common metric. Here a `workflow_set` object with the linear regression and random forest models is fit to the training data and compared with `autoplot` and `rank_results`.
+
+```{r}
+wf <- workflow_set(list(rec), list(lm_model, rf_model)) %>%
+  workflow_map('fit_resamples', resamples = camels_cv) 
+
+autoplot(wf)
+
+rank_results(wf, rank_metric = "rsq", select_best = TRUE)
+```
+
+The random forest model is outperforming the linear model, which is not surprising given the non-linear relationship between the predictors and the outcome.
+
+## Final Model
+
+The workflow-set comparison told us the random forest wins, so it is fit once more on the full training set to give a single model object to interrogate.
+
+```{r}
+final <- workflow() |>
+  add_recipe(rec) |>
+  add_model(rf_model) |>
+  fit(data = camels_train)
+```
+
+## Evaluation
+
+A proper evaluation has three parts: variable importance (which predictors the model is actually using, via `vip::vip()` paired with `extract_fit_parsnip()`), test-set metrics (applying the trained model to unseen data), and a predicted-vs-observed plot (the visual sanity check where the 1:1 line should run through the cloud).
+
+```{r}
+# Variable importance (Week 5-2 pattern)
+final |>
+  extract_fit_parsnip() |>
+  vip::vip()
+
+# Predictions on the test set
+rf_data <- augment(final, new_data = camels_test)
+
+# Regression metrics (rmse, rsq, mae by default)
+metrics(rf_data, truth = logQmean, estimate = .pred)
+
+ggplot(rf_data, aes(x = logQmean, y = .pred, colour = aridity)) +
+  scale_color_viridis_c() +
+  geom_point() +
+  # 1:1 line — perfect prediction
+  geom_abline(linetype = 2) +
+  # Actual regression line for contrast
+  geom_smooth(method = "lm", col = 'red', linetype = 2, se = FALSE) +
+  theme_linedraw() +
+  labs(title = "Random Forest Model: Observed vs Predicted",
+       x = "Observed Log Mean Flow",
+       y = "Predicted Log Mean Flow",
+       color = "Aridity")
+```
+
+That is the minimum end-to-end loop. The full version follows: a four-model workflow comparison, then spatial CV, hyperparameter tuning, and a finalized fit with `last_fit()`.
+
+# Comparing Four Models
+
+Extending the worked example, two more models join the workflow set alongside the linear model and random forest: an `xgboost` regression model built with `boost_tree`, and a neural network built with the `nnet` engine from the `baguette` package via `bag_mlp`. All four are compared with `autoplot()` and `rank_results()`.
+
+```{r}
+
+library(flextable)
+# Make XGBoost model 
+show_engines('boost_tree') %>% 
+  mutate(specification = "boost_tree") %>% 
+  flextable()
+
+library(xgboost)
+
+boost_model <- boost_tree(
+  trees          = 300,
+  tree_depth     = 6,
+  learn_rate     = 0.3,
+  loss_reduction = 0,
+  mtry           = 15
+) %>%
+  set_engine("xgboost", importance = "impurity") %>%
+  set_mode("regression")
+
+# Make Neural net model
+library(baguette)
+
+show_engines('bag_mlp') %>% 
+  mutate(specification = "bag_mlp") %>% 
+  flextable()
+
+nn_model <- bag_mlp(
+  hidden_units = 5,
+  penalty      = 0.01,
+  epochs       = 100
+) %>% 
+  set_engine("nnet") %>% 
+  set_mode("regression")
+
+
+# Add new models to workflow 
+
+wf_more <- workflow_set(list(rec), list(lm_model, rf_model, boost_model, nn_model)) %>%
+  workflow_map('fit_resamples', resamples = camels_cv) 
+
+autoplot(wf_more)
+
+rank_results(wf_more, rank_metric = "rsq", select_best = TRUE)
+```
+
+The neural net has the best performance measures (both RMSE and Rsq) which is likely due to the fact that features are all correlated with each other, and it may also be because this simple workflow has low feature dimensionality. Even though this NN is superior, I would move forward with the random forest, since it's results are more interpretable and justifiable and I'm unlikely to hit compute limitations down the line with random forest.
+
+# Building a Complete Pipeline
+
+Borrowing from the workflow above, this part builds a complete ML pipeline to predict mean streamflow using the full CAMELS dataset: EDA, a recipe, a workflow set, spatial cross-validation (CAMELS is a spatial dataset, so random CV will flatter the model), hyperparameter tuning, variable importance, and a clean final fit with `last_fit()`.
+
+## Data prep & EDA
+
+After setting a seed, `skimr::skim()` and `visdat::vis_dat()` summarize the working data to describe missingness, variable types, and distributions.
+
+```{r}
+
+#| label: initial-EDA
+
+set.seed(123)
+
+pacman::p_load(skimr, visdat)
+
+skim(camels)
+
+vis_dat(camels)
+
+```
+
+The data have generally very little missingness, with the worst variable being geol_2nd_class, which is a categorical variable that is only 79.4% complete. I will remove this variable and impute means for all other NAs. Feature distribution is varied with many left and right skewed distributions as well as some that are approximately normal and several uniform distributions. All features will need to be scaled and normalized.
+
+Features are then selected by category, chosen to reduce dimensionality by compressing multiple related variables while capturing the physically important forcing variables and parameters.
+
+```{r}
+#| label: feature-selection 
+
+# Soil features from the NRCS use a mix of lab data and pedotransfer methods when data is scarce, so expect camels soil data classes to be correlated with itself.
+
+soil_vars <- c("soil_conductivity", "max_water_content") #compress the majority of available soil data and are known critical paramter inputs in physically based processes like the defecit and constant loss method. Ksat can be a useful aprox for aquifer conductivity and is a critical baseflow paramter
+
+geol_vars <- c("geol_1st_class", "geol_porostiy", "geol_permeability") #may have some cor to soil_var, but different collection methods, and may better capture aquifer differences for baseflow variance
+
+veg_vars <- c("frac_forest", "gvf_diff", "dom_land_cover") #All useful for ET process. May also relate to surface roughness and concentration times for overland flow
+
+
+hydro_vars <- c("runoff_ratio", "stream_elas", "slope_fdc", "baseflow_index", "q5", "q95", "high_q_freq", "low_q_freq", "zero_q_freq") #slope FDC compresses many features for describing middle range of Q, quantiles target hydrograph edges, zero_q_freq targets flow regime 
+
+climate_vars <- c("p_mean", "pet_mean", "p_seasonality", "frac_snow", "high_prec_freq",  "low_prec_freq", "low_prec_timing", "aridity") #will remove aridity capture instead with p and pet, for final model, but want aridity to stratify training testing split.
+
+vars_loc <- c("elev_mean", "slope_mean", "area_gages2")
+
+camels_feat <- camels %>% 
+  select(all_of(soil_vars), all_of(geol_vars), all_of(veg_vars), all_of(hydro_vars), all_of(climate_vars), all_of(vars_loc), gauge_lat, gauge_lon, q_mean, gauge_id) %>% 
+  mutate(log_qmean = log(q_mean)) %>%  #include and transform target 
+select(-q_mean)
+
+  names(camels_feat)
+```
+
+Feature correlation is examined next, both visually and as a ranked table.
+
+```{r}
+#| label: check-features
+
+# Check feature correlation, may use to refine depending on how well my selected model handles correlated features 
+
+camels_feat %>% select(where(is.numeric)) %>% 
+  vis_cor()
+
+camels_feat %>%
+  select(where(is.numeric)) %>%
+  cor(use = "pairwise.complete.obs") %>%
+  as_tibble(rownames = "feature1") %>%
+  pivot_longer(-feature1, names_to = "feature2", values_to = "correlation") %>%
+  filter(feature1 < feature2) %>%         
+  mutate(abs_cor = abs(correlation)) %>%
+  arrange(desc(abs_cor))
+
+
+```
+
+Spatial autocorrelation is checked with Moran's I on each numeric feature, using a k-nearest-neighbor spatial weights matrix.
+
+```{r}
+library(spdep)
+
+coords <- camels_feat %>%
+  select(gauge_lon, gauge_lat) %>%  
+  as.matrix()
+
+neighbors <- knearneigh(coords, k = 5, longlat = TRUE) %>% knn2nb()
+weights   <- nb2listw(neighbors, style = "W")
+
+# Moran's I for all numeric features
+
+morans <- camels_feat %>%
+  select(where(is.numeric)) %>%
+  select(-gauge_lon, -gauge_lat) %>%          
+  map_dfr(~ {
+    morans <- moran.test(.x, weights, na.action = na.omit)
+    tibble(
+      morans_I    = morans$estimate["Moran I statistic"],
+      p_value     = morans$p.value
+    )
+  }, .id = "feature") %>%
+  mutate(morans_I = round(morans_I, 2),
+         p_value = round(p_value, 4)) %>%
+  arrange(desc(morans_I))
+
+library(flextable)
+
+morans %>% flextable()
+```
+
+All features are spatially correlated, so spatial cross validation is needed. Normality is also checked with a Shapiro-Wilk test across all numeric features.
+
+```{r}
+camels_feat %>% 
+  drop_na() %>%
+  select(where(is.numeric)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "value") %>%
+  nest(data = value) %>%
+  mutate(
+    test= map(data, ~ shapiro.test(.x$value)),
+    glance_shapiro = map(test, broom::glance)
+  ) %>%
+  unnest(glance_shapiro) %>%
+  select(feature, statistic, p.value) %>%
+  arrange(p.value) 
+
+skim(camels_feat)
+
+```
+
+No features are normal. An aridity-class strata is added based on aridity quantiles so the split works across a variety of systems, and aridity itself is then removed since precipitation and PET are used instead.
+
+```{r}
+#| label: training-testing-split 
+
+# Add aridity strata 
+
+camels_feat <- camels_feat %>%
+  mutate(aridity_class = cut(aridity,
+    breaks = quantile(aridity, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE),
+    labels = c("low", "medium_low", "medium_high", "high"),
+    include.lowest = TRUE
+  )) %>% 
+  select(-aridity) #remove aridity, since I decided to include p and pet instead
+
+
+camels_feat <- camels_feat %>% 
+    drop_na(log_qmean)
+
+split <- initial_split(camels_feat, prop = 0.75, strata = aridity_class)
+
+camels_train <- training(split)
+camels_test <- testing(split)
+
+```
+
+The training/testing split uses an aridity-class strata based on aridity quantiles to ensure the model works across a variety of systems.
+
+## Recipe
+
+The recipe predicts `log_qmean` from the selected predictors with at least three `step_*` calls beyond the formula, each grounded in what the EDA showed.
+
+```{r}
+names(camels_train)
+
+camels_recipe <- recipe(log_qmean ~ ., data = camels_train) %>% 
+  step_rm(gauge_lon, gauge_lat, aridity_class) %>% #remove lat and lon from formula
+  update_role(gauge_id, new_role = "ID") %>% 
+  step_impute_mean(all_numeric_predictors()) %>% #fill in NA numerics with imputed means, all features are 96.6% complete or higher
+  step_novel(all_factor_predictors()) %>% 
+  step_dummy(all_factor_predictors()) %>% # there are three factor features 
+  step_normalize(all_numeric_predictors()) #standardize all numeric factors
+
+
+
+prepped <- prep(camels_recipe, training = camels_train)
+
+baked <- bake(prepped, new_data = NULL)
+
+skim(baked)
+```
+
+I selected features that are generally considered important parameters and forcing variables for process driven physical models common in engineering modeling approaches. I aimed to select features that reduced dimentionality by compressing multiple other variables. For example, I used Ksat and max water storage to because they compressed the majority of available soil data and are known critical paramter inputs in physically based processes like the defecit and constant loss method. I also excluded variables with obvious correlations to others, like Aridity to PET and and Precip. Even with this, my features are highly correlated with each other and my need to be refined. The level of feature correlation may also lead to better performance for a neural net model.
+
+## Defining Three Models
+
+Three models are defined: a random forest (`ranger` engine), an xgboost model (`boost_tree`), and a neural network (`bag_mlp`).
+
+```{r}
+
+forest_model <- rand_forest(
+  trees = 500,
+   mtry  = 10,        
+   min_n = 5 
+  ) %>% 
+  set_engine("ranger", importance = "impurity") %>%
+  set_mode("regression")
+
+boost_model <- boost_tree(
+  trees = 500,
+  tree_depth = 4,
+  learn_rate = 0.05,
+  loss_reduction = 0,
+  mtry = 15,
+  min_n = 5) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+# Make Neural net model
+
+nn_model <- bag_mlp(
+  hidden_units = 10,
+  penalty      = 0.001,
+  epochs       = 200
+) %>% 
+  set_engine("nnet") %>% 
+  set_mode("regression")
+```
+
+Random Forest - Can capture non linear interactions well
+
+XGBoost - Often outperforms random forest when there are feature interactions
+
+Neural Net - my features are very correlated with each other, so the NN may be a good choice
+
+## Workflow Set with Honest Cross-Validation
+
+Because CAMELS basins are spatially distributed, a random `vfold_cv` can over-state performance if the model leans on geographic proximity. A 10-fold `vfold_cv` and a `spatialsample::spatial_block_cv()` are both built on the training data (the training data is converted to an `sf` object using `gauge_lon`/`gauge_lat`), and the workflow set is fit over both resampling schemes to compare the gap.
+
+```{r}
+
+library(spatialsample)
+
+normal_cv <- vfold_cv(data = camels_train, v = 10)
+
+# Spatial CV 
+
+train_sf <- camels_train %>% 
+  st_as_sf(coords = c("gauge_lon", "gauge_lat"),
+           crs = 4326, remove = FALSE) 
+
+block_cv <- spatial_block_cv(train_sf, v = 10)
+
+print(block_cv, n = 3)
+# plot(train_sf)
+
+wf_radom_cv <- workflow_set(list(camels_recipe), 
+                            list(forest_model, boost_model, nn_model)) %>% 
+  workflow_map("fit_resamples", resamples = normal_cv)
+
+
+autoplot(wf_radom_cv)
+
+
+wf_obj <- workflow_set(list(camels_recipe), list(forest_model, boost_model, nn_model)) %>% 
+  workflow_map("fit_resamples", resamples = block_cv)
+
+autoplot(wf_obj)
+
+rank_results(wf_obj)
+
+rank_results(wf_radom_cv)
+
+```
+
+The XGboost is the clear winner in terms of both rsq and RMSE. For this model, I'm most interested in how much of the variability of streamflow can be explained given my features, so I will use Rsq as my main metric. Further, this means I don't have to bother moving RMSE out of log space since I transformed it outside of the tidymodels pipe. My random CV has a rsq of .991 and my spatial cv drops to .986, which indicates that I am picking up on real relationships with my features and target rather than the spatial autocorreltion I observed earlier. My XGBoost standard error for the rsq on the spatial cv is 0.00344 indicating that my folds have a tight spread of performance and I'm not randomly having some low performing spatial blocks.
+
+## Tuning the Best Model
+
+At least two hyperparameters of the XGBoost model are tagged with `tune()`, and a named Latin hypercube grid is built rather than passing an integer to `tune_grid()`. Tuning runs against the spatial resamples, and the tuning landscape is shown with `autoplot()`, with the best combination identified via `show_best()` and `select_best()`.
+
+```{r}
+boost_model <- boost_tree(
+  trees = 500,
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  mtry = tune(),
+  min_n = tune()) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+tune_wf <- workflow(camels_recipe, boost_model)
+
+grid <-grid_latin_hypercube(
+  tree_depth(range = c(3, 6)),
+  learn_rate(range = c(-2, -1)),  # log10 scale so 0.01 to 0.1
+  mtry(range = c(10, 25)),
+  min_n(range  = c(3, 10)),
+  loss_reduction(range  = c(-5, 0)),   # log10
+  size = 30)
+  
+boost_tune <- tune_grid(
+  tune_wf, 
+  resamples = block_cv,
+  grid = grid,
+   metrics = metric_set(rmse, rsq, mae)
+)
+
+
+autoplot(boost_tune)
+
+show_best(boost_tune, metric = "rmse", n = 5)
+
+best_params <- select_best(boost_tune, metric = "rmse")
+
+
+# Final fit
+
+final_workflow <- tune_wf %>%
+  finalize_workflow(best_params)
+
+final_fit <- last_fit(final_workflow, split)
+```
+
+Tree depth and and randomly selected predictors both appeared to be important. Shallower trees worked better and more predictors also increased performance clearly.
+
+## Variable Importance
+
+A `vip::vip()` plot for the tuned model shows the top predictors, cross-referenced against the predictor Moran's I from EDA to assess whether any top features are acting as geographic proxies.
+
+```{r}
+extract_fit_parsnip(final_fit) %>% 
+  vip(num_features = 10) +
+  labs(title = "Boosted tree: top predictors of mean streamflow") +
+  theme_linedraw(14)
+
+#answere q 
+```
+
+All three of my top predictors are spatially autocorrelated. They certainly could be some level of geographic proxy, but they are also all critical for runoff processes. Q 95 is critical to understand what a system peak Q is, run off ratio compresses many physically critical processes, like ET and deep percolation to groundwater, and p_mean is probably the most critical environmental forcing variable in any system. Given this, and my low drop in kfold testing between my cv structures, I think my model is picking up mostly on mechanistic processes rather than just performing geographic predictions.
+
+## Final Fit and Evaluation
+
+The tuned workflow is finalized with the best hyperparameters, then `last_fit()` trains on the full training set and evaluates on the held-out test set in one call. `collect_metrics()` and `collect_predictions()` report final test-set performance, and observed vs predicted `logQmean` is plotted on the test set colored by aridity class with a 1:1 reference line.
+
+```{r}
+collect_metrics(final_fit)
+
+pred <- collect_predictions(final_fit) %>% 
+  bind_cols(testing(split) %>% 
+              select(gauge_id, aridity_class))
+
+pred %>% 
+  ggplot(aes(x = .pred, y = log_qmean, color = aridity_class))+
+  geom_point()+
+  geom_abline(slope = 1, intercept = 0, color = 'steelblue')+
+  labs(
+    x = "Predicted",
+    y = "Observed",
+    color = "Aridity Class",
+    title = "Obs. vs. Predicted plot for training data"
+  )+
+  theme_bw()
+  
+
+
+```
+
+My model had a rsq of .991 with the best performance in low to medium-high aridity basins. Performance slipped a in the high aridity basins, which is likely because there are fewer basins with a very high aridity, leading to a larger spread in that class and the fact that arid basins naturally have more ephemeral and varied conditions. In these conditions, the model is tending to over predict flow. My model is likely a bit over fit, and my next step would be to return to feature selection and see how much feature dimensionality I could remove before performance starts slipping. Specifically, I wold remove values associated with flow like Q95, since I would be most interested in applying this model to un-gauged basins anyways.

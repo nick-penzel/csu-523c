@@ -1,0 +1,392 @@
+---
+title: 'Timeseries Forecasting on the Cache la Poudre River'
+subtitle: 'Predicting future streamflow with Modeltime and exogenous climate predictors'
+author:
+  - name: Nick Penzel
+    email: n.penzel@colostate.edu
+format:
+   html:
+    toc: true
+    include-before-body: ../slides/header.html
+    include-after-body:  ../slides/footer-annotations.html
+---
+
+```{r}
+#| echo: false
+knitr::include_graphics('img/poudremapgeneral-1.jpg')
+```
+
+# Introduction
+
+This investigation downloads streamflow data from the Cache la Poudre River (USGS site 06752260) and analyzes it using time series methods and forecasting. The `modeltime` package predicts future streamflow using both the time structure of the series and exogenous climate predictors.
+
+The Poudre is an operational water-supply system: Fort Collins, Loveland, and Greeley all depend on it, and flow forecasting here can directly inform how water managers plan deliveries.
+
+```{r}
+#| message: false
+library(tidyverse)
+library(plotly)
+
+# remotes::install_github("mikejohnson51/climateR", force = TRUE)
+
+library(dataRetrieval)
+
+library(climateR)
+library(terra)
+library(exactextractr)
+
+library(tidymodels)
+library(tsibble)
+library(feasts)
+library(modeltime)
+library(timetk)
+library(tseries)   # for stationarity tests
+```
+
+# Getting the Data
+
+## Streamflow
+
+Daily streamflow for the Poudre at Mouth (USGS 06752260) is downloaded and aggregated to monthly means.
+
+```{r}
+#| message: false
+#| warning: false
+poudre_flow <- readNWISdv(
+  siteNumber = "06752260",
+  parameterCd = "00060",
+  startDate   = "2013-01-01",
+  endDate     = "2023-12-31"
+) |>
+  renameNWISColumns() |>
+  mutate(Date = yearmonth(Date)) |>
+  group_by(Date) |>
+  summarise(Flow = mean(Flow))
+```
+
+## Historic Climate (GridMET)
+
+`climateR::getTerraClim()` downloads monthly climate data for the Poudre basin (max temperature, precipitation, solar radiation), and the `exactextractr` package spatially averages each raster layer over the basin polygon.
+
+```{r}
+#| message: false
+#| warning: false
+
+basin <- findNLDI(nwis = "06752260", find = "basin")
+
+sdate <- as.Date("2013-01-01")
+edate <- as.Date("2023-12-31")
+
+gm <- getTerraClim(
+  AOI       = basin$basin,
+  var       = c("tmax", "ppt", "srad"),
+  startDate = sdate,
+  endDate   = edate
+) |>
+  unlist() |>
+  rast() |>
+  exact_extract(basin$basin, "mean", progress = FALSE)
+
+historic <- mutate(gm, id = "gridmet") |>
+  pivot_longer(cols = -id) |>
+  mutate(name = sub("^mean\\.", "", name)) |>
+  tidyr::extract(name, into = c("var", "index"), "(.*)_([^_]+$)") |>
+  mutate(index = as.integer(index)) |>
+  mutate(Date = yearmonth(seq.Date(sdate, edate, by = "month")[as.numeric(index)])) |>
+  pivot_wider(id_cols = Date, names_from = var, values_from = value) |>
+  right_join(poudre_flow, by = "Date")
+
+# Validate: should have 132 rows (11 years × 12 months). If fewer, climate data
+# is missing for some months and those flow months were silently dropped.
+stopifnot("Climate join dropped flow months — check GridMET download" = nrow(historic) == 132)
+```
+
+## Future Climate (MACA)
+
+Any time exogenous predictors are used for forecasting, future values of those predictors must also be available. MACA, a statistically downscaled climate dataset developed by the same group as GridMET, provides projected temperature, precipitation, and solar radiation through 2033.
+
+```{r}
+sdate <- as.Date("2024-01-01")
+edate <- as.Date("2033-12-31")
+
+maca <- getMACA(
+  AOI      = basin$basin,
+  var      = c("tasmax", "pr", "rsds"),
+  timeRes  = "month",
+  startDate = sdate,
+  endDate   = edate
+) |>
+  unlist() |>
+  rast() |>
+  exact_extract(basin$basin, "mean", progress = FALSE)
+
+future <- mutate(maca, id = "maca") |>
+  pivot_longer(cols = -id) |>
+  mutate(name = sub("^mean\\.", "", name)) |>
+  tidyr::extract(name, into = c("var", "index"), "(.*)_([^_]+$)") |>
+  mutate(index = as.integer(index)) |>
+  mutate(Date = yearmonth(seq.Date(sdate, edate, by = "month")[as.numeric(index)])) |>
+  pivot_wider(id_cols = Date, names_from = var, values_from = value)
+
+# Rename the 3 climate columns to match GridMET names (Date column stays first)
+stopifnot("Unexpected MACA column count" = ncol(future) == 4)
+names(future)[2:4] <- c("ppt", "srad", "tmax")  # order matches getMACA var request
+future <- mutate(future, tmax = tmax - 273.15)   # Kelvin → °C
+```
+
+------------------------------------------------------------------------
+
+# Modeling Poudre River Flow
+
+## Convert to tsibble
+
+The historic data is converted to a `tsibble` for time series analysis.
+
+```{r}
+
+poudre <- as_tsibble(historic)
+```
+
+## Plot the Time Series
+
+An interactive plot of monthly streamflow gives a first look at the series.
+
+```{r}
+
+flow_plot <- ggplot(poudre, aes(x = as.Date(Date), y = Flow)) +
+  geom_line(color = "blue") +
+  labs(title  = "Monthly Streamflow: Cache la Poudre",
+       y = "Flow (cfs)",
+       x = "Date") +
+  theme_bw()
+
+ggplotly(flow_plot)
+```
+
+## Seasonal Diagnostics
+
+The seasonal structure is inspected using two complementary `feasts` plots. The subseries plot shows each month across years.
+
+```{r}
+gg_subseries(poudre, y = Flow) +
+  labs(title = "Monthly Flow",
+       y = "Flow (cfs)",
+       x = "Year") +
+  theme_bw()
+```
+
+The seasonal plot overlays the shape of each year.
+
+```{r}
+gg_season(poudre, y = Flow) +
+  labs(title = "Seasonal Shape by Year",
+       y = "Flow (cfs)", x = "Month") +
+  theme_bw()
+```
+
+Season is defined as a calendar year. The seasonal pattern it relatively stable, we see in outlier event in Feb. which is likely a signal from the 2013 floods in the region. Peak flow can alternate between May and June which is the snowmelt signal.
+
+## Stationarity and Autocorrelation
+
+Two diagnostics directly inform ARIMA model selection. The lag plot shows the autocorrelation structure of the log-transformed flow.
+
+```{r}
+
+poudre %>% 
+  mutate(log_flow = log1p(Flow)) %>% 
+  gg_lag(y = log_flow, geom = "point") +
+  labs(title = "Lag Flow Structure",
+       x = "lag log Flow", y = "log Flow") +
+  theme_bw()
+```
+
+Two stationarity tests are run on the log flow: the Augmented Dickey-Fuller test (null hypothesis of non-stationary) and the KPSS test (null hypothesis of stationary).
+
+```{r}
+
+log_flow <- log1p(poudre$Flow)
+
+# H0 = non-stationary
+adf.test(log_flow)
+
+# H0 = stationary
+kpss.test(log_flow)
+```
+
+The tests conflict eachother, but together they tell me that the streamflow has a consistent process and is deterministic, but there is some year over year trend that is changing streamflow and making it non-stationary. Essentially, the flow regime is stationary, but there is a deterministic trend changing means year-to-year. This tracks with the Poudre River, where increased diversion and increased drought are having an impact.
+
+## Decomposition
+
+An STL decomposition separates the trend, seasonal, and remainder components. The 12 month trend window matches the snowmelt-driven flow regime on the Poudre.
+
+```{r}
+
+decomp <- poudre %>% 
+  model(STL(Flow ~ trend(window = 12) + season(window = "periodic"))) %>% #a 12 month window matches the actualy snowmelt driven flow regime on the Poudre
+  components()
+
+autoplot(decomp)
+```
+
+Within our time frame, we see some evidence of a long term trend of declining stream flow, although the trend is not clean and there is still year to year variation. The seasonal pattern looks very strong and and consistent, indicating that even as the baseline is shifting the hydrologic regime is consistent. There are higher residuals in the earlier 2013-2017. This period included the 2013 front range flood and some strong El Nino ENSO patterns that likely increase residuals over the long term trend. We all see a strong trend signal for the post 2018 droughts, and recoveries as the droughts moderately bounce back.
+
+------------------------------------------------------------------------
+
+# Modeltime Prediction
+
+## Data Preparation
+
+The historic and future data are converted to tibbles, and the highly skewed discharge is log transformed.
+
+```{r}
+poudre_tibble <- poudre %>% 
+  as_tibble() %>% 
+  mutate(date = as.Date(Date),
+         log_flow = log1p(Flow)) %>% #Log transform highly skewed discharge data
+  select(-Date)
+
+
+future_tibble <- future %>% 
+  as_tibble() %>% 
+  mutate(date = as.Date(Date)) %>% 
+  select(-Date)
+```
+
+## Train / Test Split
+
+A time series split holds out the final 24 months for testing, keeping the training set cumulative.
+
+```{r}
+
+set.seed(123)
+
+splits <- time_series_split(poudre_tibble, assess = "24 months", cumulative = TRUE)
+
+training <- training(splits)
+testing  <- testing(splits)
+```
+
+## Model Definitions
+
+Four models are compared: ARIMA regression, ARIMA with XGBoost boosting, Prophet, and Prophet with XGBoost boosting.
+
+```{r}
+
+models_list <- list(
+  arima_reg() %>%  set_engine("auto_arima"),
+  arima_boost() %>%  set_engine("auto_arima_xgboost"),
+  prophet_reg() %>%  set_engine("prophet"),
+  prophet_boost() %>%  set_engine("prophet_xgboost")
+)
+```
+
+## Model Fitting
+
+Each model is fit on the training data, using log flow as the target and dropping the raw flow column so only log flow is used.
+
+```{r}
+models <- map(models_list, ~ fit(.x, log_flow ~ ., data = select(training, -Flow))) #remove flow so only log flow is being used
+
+models_table <- as_modeltime_table(models)
+```
+
+## Calibration and Accuracy
+
+The models are calibrated against the test set and ranked by accuracy metrics.
+
+```{r}
+
+calibration_table <- modeltime_calibrate(models_table, select(testing, -Flow), quiet = FALSE)
+
+modeltime_accuracy(calibration_table) %>% 
+  arrange(mae) %>% 
+  select(.model_desc, mae, mape, mase, rmse, rsq)
+```
+
+Regression with ARIMA has the highest Rsq and lowest RMSE as well as the best MASE. This is slightly counterintuitive, as I would expect a non-liner climate signal, which we saw the hints of in the decomposition. However, I think that our time range is too small to properly capture the long term climate signal, and our given time frame has high variability. With the given data, ARIMA is sufficient, but I would expect that to change if I increased my date range and added more regressors.
+
+## Test Set Forecast
+
+The calibrated models forecast over the test period, with predictions back-transformed from log space and confidence ribbons clipped so they do not go negative.
+
+```{r}
+
+test_forecast <- calibration_table %>% 
+  modeltime_forecast(new_data = select(testing, -Flow), actual_data = poudre_tibble) %>% 
+  mutate(.value   = expm1(.value),
+         .conf_lo = expm1(pmax(.conf_lo, 0)), #Back transformations, make sure ribbons don't go negative
+         .conf_hi = expm1(.conf_hi))
+
+test_forecast %>% 
+  filter(.key == "actual") %>% 
+  ggplot(aes(x = .index, y = .value)) +
+  geom_line(color = "blue") +
+  geom_line(data = filter(test_forecast, .key == "prediction"),
+            aes(color = .model_desc)) +
+  geom_ribbon(data = filter(test_forecast, .key == "prediction"),
+              aes(ymin = .conf_lo, ymax = .conf_hi, fill = .model_desc),
+              alpha = 0.1) +
+  scale_color_brewer(palette = "Set1") +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title  = "Test Set Forecast vs Actuals — Poudre at Mouth",
+       x = NULL, y = "Flow (cfs)", color = "Model", fill = "Model") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+The confidence intervals are capturing the observed values, but the upper end of the intervals is quite large and is nearly double the observed peak in the period. Additionally, all prediction means are underestimating 2023 flow. There is a discontinuity between the observed values and the start of the forecast, with all forecast beginning by underestimating the flow.
+
+## Refit to Full Dataset
+
+The models are refit on the full dataset before forecasting into the future.
+
+```{r}
+refit_tbl <- modeltime_refit(calibration_table, data = select(poudre_tibble, -Flow))
+
+modeltime_accuracy(refit_tbl) %>% 
+  arrange(mae) %>% 
+  select(.model_desc, mae, mape, mase, rmse, rsq)
+```
+
+My model metrics do not change after refitting all data. This is likely because the models have captured the variability linked to temporal cycles and the remaining noise is unexplained variance regardless of the addition of more time series data. It also indicates that my model is not over fitting and is likely stable for forecasting.
+
+## Forecast into the Future (2024 to 2033)
+
+The refit models forecast ten years forward using the MACA future climate predictors.
+
+```{r}
+
+future_forecast <- refit_tbl %>% 
+  modeltime_forecast(new_data = future_tibble %>% drop_na(date), actual_data = poudre_tibble) %>% 
+  mutate(.value = expm1(.value),
+         .conf_lo = expm1(pmax(.conf_lo, 0)),
+         .conf_hi = expm1(.conf_hi))
+
+future_forecast %>% 
+  filter(.key == "actual") %>% 
+  ggplot(aes(x = .index, y = .value)) +
+  geom_line(color = "grey40") +
+  geom_line(data = filter(future_forecast, .key == "prediction"),
+            aes(color = .model_desc)) +
+  geom_ribbon(data = filter(future_forecast, .key == "prediction"),
+              aes(ymin = .conf_lo, ymax = .conf_hi, fill = .model_desc),
+              alpha = 0.1) +
+  scale_color_brewer(palette = "Set1") +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title  = "10-Year Forecast (2024–2033)",
+       x = NULL, y = "Flow (cfs)", color = "Model", fill = "Model") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+------------------------------------------------------------------------
+
+# Conclusion
+
+Model agreement: The models have decent agreement, but there are a couple years where the prophet is producing a much higher peak flow than ARIMA. Generally, I would say that this is because the prophet has more flexibility for dealing with non linear climate trends so it may handle returns to wetter conditions with higher peak flows. Given I included climate regressors, my model convergence also suggest there is genuine uncertainty in how flow responds to the basic climate factors provided, especially for catching the peak flow snow melt pulse.
+
+Forecast quality: I would suggest the ARIMA Regression for CWCB for water-supply planning if we continued with the same simple future climate predictions. This is two fold. First, it has the best rsq and RMSE, which suggests it inherently may be capturing the variability best. Second, the model forecast is conservative, and it's always usually better in water resource planning to assume lower supply side volume and be pleasantly surprised. The ARIMA forcast also tracks with our current understanding of how climate change will likely reduce flows.
+
+Regressor value: I used The MACA climate projections which create uncertainty in my climate regressors that are contributing to predictions. Ideally, I would run multiple forecasts with different emission scenarios, allowing for a better understanding of possible future conditions depending on climate trajectory.
+
+Improvement path: For the Poudre, including variables to capture snow pack and social factors would both be helpful. I would be interested in training the model on monthly basin average SWE estimates and then use a forcasted SWE output for the flow forecast. Social demand is more challenging to capture since population increase in the region has been shown to also include a per capita water usage decrease. I would start with incorporating census population data and growth predictions and go from there.

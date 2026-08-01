@@ -39,29 +39,9 @@ In this lab you will work with real streamflow records pulled directly from the 
 
 ------------------------------------------------------------------------
 
-# Set-up {#setup}
-
-## Repository
-
-1.  Create a new repository called `csu-523c` on GitHub
-2.  Clone it to your `~/github/` directory
-3.  Open the project in RStudio (`File → Open Project`)
-4.  Download this labs qmd file [here](lab-01.qmd) into your repo
-5.  Add your information to the yaml
-
-``` yaml
----
-...
-author:
-  - name: Your Name
-    email: your@colostate.edu
-...
----
-```
-
 ## Libraries
 
-Install and load the following packages. If any are missing, run `install.packages("packagename")` first:
+Install and load the following packages
 
 ```{r}
 #| eval: true
@@ -79,10 +59,6 @@ pacman::p_load(
   flextable
 )
 ```
-
-::: callout-note
-`pacman::p_load()` installs any missing packages and loads them in one step — convenient for students setting up dependencies.
-:::
 
 ## Data
 
@@ -225,7 +201,7 @@ Before writing a single `_join()` call, answer three questions:
 ## The (main) four joins — and when to use each
 
 | Function | Keeps rows from... | Non-matching rows |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | `left_join(x, y)` | All of `x` | `y` columns filled with `NA` |
 | `right_join(x, y)` | All of `y` | `x` columns filled with `NA` |
 | `inner_join(x, y)` | Only rows matching in **both** | Dropped entirely |

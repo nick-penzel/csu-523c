@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.25">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Nick Penzel">
+
+<title>Rasters and Remote Sensing – ESS 523c</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-7b89279ff1a6dce999919e0e67d4d9ec.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-ff63373b1067ca6f91cf1456aa1f00a2.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<link href="site_libs/htmltools-fill-0.5.8.1/fill.css" rel="stylesheet">
+<script src="site_libs/htmlwidgets-1.6.4/htmlwidgets.js"></script>
+<script src="site_libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<link href="site_libs/leaflet-1.3.1/leaflet.css" rel="stylesheet">
+<script src="site_libs/leaflet-1.3.1/leaflet.js"></script>
+<link href="site_libs/leafletfix-1.0.0/leafletfix.css" rel="stylesheet">
+<script src="site_libs/proj4-2.6.2/proj4.min.js"></script>
+<script src="site_libs/Proj4Leaflet-1.0.1/proj4leaflet.js"></script>
+<link href="site_libs/rstudio_leaflet-1.3.1/rstudio_leaflet.css" rel="stylesheet">
+<script src="site_libs/leaflet-binding-2.2.3/leaflet.js"></script>
+<script src="site_libs/leaflet-providers-2.0.0/leaflet-providers_2.0.0.js"></script>
+<script src="site_libs/leaflet-providers-plugin-2.2.3/leaflet-providers-plugin.js"></script>
+<script src="site_libs/HomeButton-0.0.1/home-button.js"></script>
+<script src="site_libs/HomeButton-0.0.1/easy-button-src.min.js"></script>
+<link href="site_libs/aoi-CSS-0.0.1/aoi_home-button.css" rel="stylesheet">
+<script src="site_libs/clipboard-0.0.1/setClipboardText.js"></script>
+<link href="site_libs/mapviewCSS-0.0.1/mapview-popup.css" rel="stylesheet">
+<link href="site_libs/mapviewCSS-0.0.1/mapview.css" rel="stylesheet">
+<script src="site_libs/Water Uncertainty_2c0d6f-1/data_stars_WaterUncertainty40ea21.txt"></script>
+<script src="site_libs/joda-0.0.1/joda.js"></script>
+<script src="site_libs/joda-0.0.1/addImageQuery-bindings.js"></script>
+<link href="site_libs/Water_Uncertainty-CSS-0.0.1/Water_Uncertainty_home-button.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-search-results"></div>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#background" id="toc-background" class="nav-link active" data-scroll-target="#background">Background</a>
+  <ul class="collapse">
+  <li><a href="#identifying-the-area-and-time" id="toc-identifying-the-area-and-time" class="nav-link" data-scroll-target="#identifying-the-area-and-time">Identifying the Area and Time</a></li>
+  <li><a href="#finding-the-images-with-stac" id="toc-finding-the-images-with-stac" class="nav-link" data-scroll-target="#finding-the-images-with-stac">Finding the Images with STAC</a></li>
+  </ul></li>
+  <li><a href="#data-access" id="toc-data-access" class="nav-link" data-scroll-target="#data-access">Data Access</a></li>
+  <li><a href="#data-visualization" id="toc-data-visualization" class="nav-link" data-scroll-target="#data-visualization">Data Visualization</a></li>
+  <li><a href="#q3" id="toc-q3" class="nav-link" data-scroll-target="#q3">Indices and Thresholds</a>
+  <ul class="collapse">
+  <li><a href="#raster-algebra" id="toc-raster-algebra" class="nav-link" data-scroll-target="#raster-algebra">Raster Algebra</a></li>
+  <li><a href="#raster-thresholding" id="toc-raster-thresholding" class="nav-link" data-scroll-target="#raster-thresholding">Raster Thresholding</a></li>
+  </ul></li>
+  <li><a href="#classification" id="toc-classification" class="nav-link" data-scroll-target="#classification">Classification</a></li>
+  <li><a href="#comparing-the-methods" id="toc-comparing-the-methods" class="nav-link" data-scroll-target="#comparing-the-methods">Comparing the Methods</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Rasters and Remote Sensing</h1>
+<p class="subtitle lead">Mapping the 2016 Palo, Iowa flood from Landsat imagery</p>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Nick Penzel <a href="mailto:n.penzel@colostate.edu" class="quarto-title-author-email"><i class="bi bi-envelope"></i></a> </p>
+          </div>
+  </div>
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="cell" data-layout-align="center">
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="img/05-flood-map.jpg" class="img-fluid quarto-figure quarto-figure-center figure-img" style="width:100.0%"></p>
+</figure>
+</div>
+</div>
+</div>
+<section id="background" class="level1">
+<h1>Background</h1>
+<p>On September 26, 2016 at 11:47 a.m. U.S. Central Daylight Time (16:47 UTC) the Cedar and Wapsipinicon rivers in Iowa surged producing a flood wave that breached the river banks. The water level of the Cedar River measured ~20 feet, 8 feet above flood stage, near the city of Cedar Rapids.</p>
+<p>The water level continued to rise until it peaked at ~22 feet on September 27. This event had only been exceeded once, in June 2008, when thousands of people were encouraged to evacuate from Cedar Rapids, the second-most-populous city in Iowa.</p>
+<div class="cell" data-layout-align="center">
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="img/palo-flood-warning.png" class="img-fluid quarto-figure quarto-figure-center figure-img" style="width:60.0%"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>This investigation focuses on the impacts in Palo, Iowa, because it is upstream of Cedar Rapids, contains a large amount of farm land, and does not have a forecast location to provide warning. Using the <code>terra</code> and <code>rstac</code> packages, along with an understanding of raster data and categorization, it creates flood images from multiband Landsat imagery using thresholding and classification methods.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(rstac) <span class="co"># STAC API</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(terra) <span class="co"># Raster Data handling</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(sf) <span class="co"># Vector data processing</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mapview) <span class="co"># Rapid Interactive visualization</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Almost all remote sensing and image analysis begins with the same basic steps: identify an area of interest (AOI), identify the temporal range of interest, identify the relevant images, download the images, and analyze the products.</p>
+<section id="identifying-the-area-and-time" class="level2">
+<h2 class="anchored" data-anchor-id="identifying-the-area-and-time">Identifying the Area and Time</h2>
+<p>The first step is to identify an AOI. To extract the flood extents for Palo, Iowa and its surroundings, the geocoding capabilities within the <code>AOI</code> package provide the bounding box.</p>
+<p>The flood event occurred on September 26, 2016. A primary challenge with remote sensing is that all satellite imagery is not available at all times. In this case Landsat 8 has an 8 day revisit time, so to ensure an image within the date of the flood, the time range is set to the period between September 24th and 29th of 2016, defined in the form <code>YYYY-MM-DD/YYYY-MM-DD</code>.</p>
+</section>
+<section id="finding-the-images-with-stac" class="level2">
+<h2 class="anchored" data-anchor-id="finding-the-images-with-stac">Finding the Images with STAC</h2>
+<p>The next step is to identify the images available for the AOI and time range. This is where the <code>rstac</code> package comes in, providing a simple interface to the SpatioTemporal Asset Catalog (STAC) API, a standard for discovering and accessing geospatial data. STAC describes geospatial data in a consistent way, standardizing the metadata of geospatial assets including their spatial and temporal extents, data formats, and other relevant information.</p>
+<p>A STAC catalog is a collection of items and collections, serving as a top-level container. Items are the basic unit of data, each representing a single asset such as a satellite image, and containing metadata describing the asset. An asset is a specific file or data product associated with an item; a single satellite image may have multiple assets, such as different bands or processing levels, typically stored in cloud storage and accessed via URLs.</p>
+<p>This analysis uses a STAC catalog to identify data from the Landsat 8 collection, which is served by the USGS (via AWS), Google, and Microsoft Planetary Computer (MPC). MPC provides free access, so it is the data store used here. The <a href="https://planetarycomputer.microsoft.com/api/stac/v1">full data holdings</a> are available as JSON, where searching for <code>Landsat</code> finds the references for the available data stores. Within R, a connection to this endpoint opens with the <code>stac</code> function.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Open a connection to the MPC STAC API</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>stac_query <span class="ot">&lt;-</span> <span class="fu">stac</span>(<span class="st">"https://planetarycomputer.microsoft.com/api/stac/v1"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>That connection provides an open entry to all data hosted by MPC. The <code>stac_search</code> function reduces the catalog to assets that match certain criteria, much like <code>dplyr::filter</code> reduces a <code>data.frame</code>, and <code>get_request()</code> sends the search to the STAC API, returning metadata about the matching objects (MPC sets a return limit of 250 items, overridable with the limit parameter). The collection of interest is “Landsat Collection 2 Level-2”, searched via the <code>stac</code> to <code>stac_search</code> to <code>get_request</code> workflow refined to the AOI and time range.</p>
+<p>The request then needs to be signed. In <code>rstac</code>, <code>items_sign(sign_planetary_computer())</code> signs STAC item asset URLs retrieved from Microsoft’s Planetary Computer, ensuring they include authentication tokens for access. <code>sign_planetary_computer()</code> generates the signing function, and <code>items_sign()</code> applies it to STAC items, which is essential for accessing datasets hosted on the Planetary Computer and other catalogs where data access might be requester-paid or limited.</p>
+<p>A Landsat 8 item has 11 bands in total.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="img/lsat8-bands.jpg" class="img-fluid figure-img" width="939"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>For this analysis, only the first 6 bands are needed. Assets are extracted from a STAC item by the asset name, so a vector of the wanted assets is defined.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Bands 1-6</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>bands <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">'coastal'</span>, <span class="st">'blue'</span>, <span class="st">'green'</span>, <span class="st">'red'</span>, <span class="st">'nir08'</span>, <span class="st">'swir16'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>The <code>assets_download()</code> function then downloads the data, with <code>output_dir</code> specifying where to save the files and <code>overwrite</code> controlling whether existing files are replaced. From a set of local files, a raster object is built, with files in band order: <code>list.files()</code> searches a directory for a pattern and returns a list of files (with <code>recursive</code> searching sub-directories and <code>full.names</code> returning full paths), <code>rast()</code> reads the files into a raster object, and <code>setNames()</code> sets the band names to the values defined above.</p>
+<p>The full setup, geocoding Palo, defining the date range and bands, and opening and signing the STAC connection, is below.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># get AOI for Palo, Iowa</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(AOI)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>aoi <span class="ot">&lt;-</span> <span class="fu">geocode</span>(<span class="st">"Palo, Iowa"</span>, <span class="at">bbox =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="fu">mapview</span>(aoi)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="leaflet html-widget html-fill-item" id="htmlwidget-ec03d058c015bf65f471" style="width:100%;height:464px;"></div>
+<script type="application/json" data-for="htmlwidget-ec03d058c015bf65f471">{"x":{"options":{"minZoom":1,"maxZoom":52,"crs":{"crsClass":"L.CRS.EPSG3857","code":null,"proj4def":null,"projectedBounds":null,"options":{}},"preferCanvas":false,"bounceAtZoomLimits":false,"maxBounds":[[[-90,-370]],[[90,370]]]},"calls":[{"method":"addProviderTiles","args":["CartoDB.Positron","CartoDB.Positron","CartoDB.Positron",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addProviderTiles","args":["CartoDB.DarkMatter","CartoDB.DarkMatter","CartoDB.DarkMatter",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addProviderTiles","args":["OpenStreetMap","OpenStreetMap","OpenStreetMap",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addProviderTiles","args":["Esri.WorldImagery","Esri.WorldImagery","Esri.WorldImagery",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addProviderTiles","args":["OpenTopoMap","OpenTopoMap","OpenTopoMap",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"createMapPane","args":["polygon",420]},{"method":"addPolygons","args":[[[[{"lng":[-91.81281300000001,-91.778813,-91.778813,-91.81281300000001,-91.81281300000001],"lat":[42.048236,42.048236,42.082236,42.082236,42.048236]}]]],null,"aoi",{"crs":{"crsClass":"L.CRS.EPSG3857","code":null,"proj4def":null,"projectedBounds":null,"options":{}},"pane":"polygon","stroke":true,"color":"#333333","weight":0.5,"opacity":0.9,"fill":true,"fillColor":"#6666FF","fillOpacity":0.6,"smoothFactor":1,"noClip":false},"<div class='scrollableContainer'><table class=mapview-popup id='popup'><tr class='coord'><td><\/td><th><b>Feature ID&emsp;<\/b><\/th><td>1&emsp;<\/td><\/tr><tr><td>1<\/td><th>request&emsp;<\/th><td>Palo, Iowa&emsp;<\/td><\/tr><tr><td>2<\/td><th>score&emsp;<\/th><td>100&emsp;<\/td><\/tr><tr><td>3<\/td><th>arcgis_address&emsp;<\/th><td>Palo, Iowa&emsp;<\/td><\/tr><tr><td>4<\/td><th>x&emsp;<\/th><td>-91.79581&emsp;<\/td><\/tr><tr><td>5<\/td><th>y&emsp;<\/th><td>42.06524&emsp;<\/td><\/tr><tr><td>6<\/td><th>geometry&emsp;<\/th><td>sfc_POLYGON&emsp;<\/td><\/tr><\/table><\/div>",{"maxWidth":800,"minWidth":50,"autoPan":true,"keepInView":false,"closeButton":true,"closeOnClick":true,"className":""},"1",{"interactive":false,"permanent":false,"direction":"auto","opacity":1,"offset":[0,0],"textsize":"10px","textOnly":false,"className":"","sticky":true},{"stroke":true,"weight":1,"opacity":0.9,"fillOpacity":0.84,"bringToFront":false,"sendToBack":false}]},{"method":"addScaleBar","args":[{"maxWidth":100,"metric":true,"imperial":true,"updateWhenIdle":true,"position":"bottomleft"}]},{"method":"addHomeButton","args":[-91.81281300000001,42.048236,-91.778813,42.082236,true,"aoi","Zoom to aoi","<strong> aoi <\/strong>","bottomright"]},{"method":"addLayersControl","args":[["CartoDB.Positron","CartoDB.DarkMatter","OpenStreetMap","Esri.WorldImagery","OpenTopoMap"],"aoi",{"collapsed":true,"autoZIndex":true,"position":"topleft"}]},{"method":"addLegend","args":[{"colors":["#6666FF"],"labels":["aoi"],"na_color":null,"na_label":"NA","opacity":1,"position":"topright","type":"factor","title":"","extra":null,"layerId":null,"className":"info legend","group":"aoi"}]}],"limits":{"lat":[42.048236,42.082236],"lng":[-91.81281300000001,-91.778813]},"fitBounds":[42.048236,-91.81281300000001,42.082236,-91.778813,[]]},"evals":[],"jsHooks":{"render":[{"code":"function(el, x, data) {\n  return (\n      function(el, x, data) {\n      // get the leaflet map\n      var map = this; //HTMLWidgets.find('#' + el.id);\n      // we need a new div element because we have to handle\n      // the mouseover output separately\n      // debugger;\n      function addElement () {\n      // generate new div Element\n      var newDiv = $(document.createElement('div'));\n      // append at end of leaflet htmlwidget container\n      $(el).append(newDiv);\n      //provide ID and style\n      newDiv.addClass('lnlt');\n      newDiv.css({\"position\":\"relative\",\"bottomleft\":\"0px\",\"background-color\":\"rgba(255, 255, 255, 0.7)\",\"box-shadow\":\"0 0 2px #bbb\",\"background-clip\":\"padding-box\",\"margin\":\"0\",\"padding-left\":\"5px\",\"padding-right\":\"5px\",\"color\":\"#333\",\"font-size\":\"9px\",\"font-family\":\"\\\"Helvetica Neue\\\", Arial, Helvetica, sans-serif\",\"text-align\":\"left\",\"z-index\":\"700\"});\n      return newDiv;\n      }\n\n\n      // check for already existing lnlt class to not duplicate\n      var lnlt = $(el).find('.lnlt');\n\n      if(!lnlt.length) {\n      lnlt = addElement();\n\n      // grab the special div we generated in the beginning\n      // and put the mousmove output there\n\n      map.on('mousemove', function (e) {\n      if (e.originalEvent.ctrlKey) {\n      if (document.querySelector('.lnlt') === null) lnlt = addElement();\n      lnlt.text(\n                           ' lon: ' + (e.latlng.lng).toFixed(5) +\n                           ' | lat: ' + (e.latlng.lat).toFixed(5) +\n                           ' | zoom: ' + map.getZoom() +\n                           ' | x: ' + L.CRS.EPSG3857.project(e.latlng).x.toFixed(0) +\n                           ' | y: ' + L.CRS.EPSG3857.project(e.latlng).y.toFixed(0) +\n                           ' | epsg: 3857 ' +\n                           ' | proj4: +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +no_defs ');\n      } else {\n      if (document.querySelector('.lnlt') === null) lnlt = addElement();\n      lnlt.text(\n                      ' lon: ' + (e.latlng.lng).toFixed(5) +\n                      ' | lat: ' + (e.latlng.lat).toFixed(5) +\n                      ' | zoom: ' + map.getZoom() + ' ');\n      }\n      });\n\n      // remove the lnlt div when mouse leaves map\n      map.on('mouseout', function (e) {\n      var strip = document.querySelector('.lnlt');\n      if( strip !==null) strip.remove();\n      });\n\n      };\n\n      //$(el).keypress(67, function(e) {\n      map.on('preclick', function(e) {\n      if (e.originalEvent.ctrlKey) {\n      if (document.querySelector('.lnlt') === null) lnlt = addElement();\n      lnlt.text(\n                      ' lon: ' + (e.latlng.lng).toFixed(5) +\n                      ' | lat: ' + (e.latlng.lat).toFixed(5) +\n                      ' | zoom: ' + map.getZoom() + ' ');\n      var txt = document.querySelector('.lnlt').textContent;\n      console.log(txt);\n      //txt.innerText.focus();\n      //txt.select();\n      setClipboardText('\"' + txt + '\"');\n      }\n      });\n\n      }\n      ).call(this.getMap(), el, x, data);\n}","data":null},{"code":"function(el, x, data) {\n  return (function(el,x,data){\n           var map = this;\n\n           map.on('keypress', function(e) {\n               console.log(e.originalEvent.code);\n               var key = e.originalEvent.code;\n               if (key === 'KeyE') {\n                   var bb = this.getBounds();\n                   var txt = JSON.stringify(bb);\n                   console.log(txt);\n\n                   setClipboardText('\\'' + txt + '\\'');\n               }\n           })\n        }).call(this.getMap(), el, x, data);\n}","data":null}]}}</script>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Set date range</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>date_range <span class="ot">&lt;-</span> <span class="st">"2016-09-24/2016-09-29"</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>bands <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">'coastal'</span>, <span class="st">'blue'</span>, <span class="st">'green'</span>, <span class="st">'red'</span>, <span class="st">'nir08'</span>, <span class="st">'swir16'</span>)</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Open connection </span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>stac_query <span class="ot">&lt;-</span> <span class="fu">stac</span>(<span class="st">"https://planetarycomputer.microsoft.com/api/stac/v1"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stac_search</span>(</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">collections =</span> <span class="st">"landsat-c2-l2"</span>,</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">datetime =</span> date_range,</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">bbox =</span> <span class="fu">st_bbox</span>(aoi),</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">limit =</span> <span class="dv">1</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">get_request</span>() <span class="sc">%&gt;%</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">items_sign</span>(<span class="fu">sign_planetary_computer</span>())</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+</section>
+<section id="data-access" class="level1">
+<h1>Data Access</h1>
+<p>With the search signed, all the data for the analysis is downloaded, the files are listed and sorted into band order, read into a raster object, and named. This establishes the dimensions, CRS, and cell resolution of the stacked image.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Download the images needed </span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="fu">assets_download</span>(<span class="at">items =</span> stac_query, </span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>                <span class="at">asset_names =</span> bands, </span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>                <span class="at">output_dir =</span> <span class="st">"data"</span>, </span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>                <span class="at">overwrite =</span> T)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>###Items
+- features (1 item(s)):
+  - LC08_L2SP_025031_20160926_02_T1
+- assets: blue, coastal, green, nir08, red, swir16
+- item's fields: 
+assets, bbox, collection, geometry, id, links, properties, stac_extensions, stac_version, type</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># List files </span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>l8_files <span class="ot">&lt;-</span> <span class="fu">list.files</span>(</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">path =</span> <span class="st">"data/landsat-c2/level-2/standard/oli-tirs"</span>,</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">pattern =</span> <span class="st">"*.TIF$"</span>,</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">full.names =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">recursive =</span> <span class="cn">TRUE</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Sort bands</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>l8_files <span class="ot">&lt;-</span> <span class="fu">sort</span>(l8_files)</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>l8_rast <span class="ot">&lt;-</span> <span class="fu">rast</span>(l8_files)</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>l8_rast <span class="ot">&lt;-</span> <span class="fu">setNames</span>(l8_rast, bands)</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>l8_rast</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>class       : SpatRaster
+size        : 7801, 7681, 6  (nrow, ncol, nlyr)
+resolution  : 30, 30  (x, y)
+extent      : 518085, 748515, 4506885, 4740915  (xmin, xmax, ymin, ymax)
+coord. ref. : WGS 84 / UTM zone 15N (EPSG:32615)
+sources     : LC08_L2SP_025031_20160926_20200906_02_T1_SR_B1.TIF
+              LC08_L2SP_025031_20160926_20200906_02_T1_SR_B2.TIF
+              LC08_L2SP_025031_20160926_20200906_02_T1_SR_B3.TIF
+              ... and 3 more sources
+names       : coastal, blue, green, red, nir08, swir16</code></pre>
+</div>
+</div>
+<p>Only the regions surrounding Palo are of interest, so the AOI is transformed to the CRS of the Landsat stack and used to crop the raster stack.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Match AOI CRS to raster and crop</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>aoi <span class="ot">&lt;-</span> <span class="fu">st_transform</span>(aoi, <span class="fu">st_crs</span>(l8_rast))</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>l8_crop <span class="ot">&lt;-</span> <span class="fu">crop</span>(l8_rast, aoi)</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>l8_crop</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>class       : SpatRaster
+size        : 127, 96, 6  (nrow, ncol, nlyr)
+resolution  : 30, 30  (x, y)
+extent      : 598185, 601065, 4655805, 4659615  (xmin, xmax, ymin, ymax)
+coord. ref. : WGS 84 / UTM zone 15N (EPSG:32615)
+source(s)   : memory
+names       : coastal,  blue, green,   red, nir08, swir16
+min values  :    6194,  6778,  7901,  7693,  7253,   7259
+max values  :   15955, 17035, 18409, 19288, 23896,  26946</code></pre>
+</div>
+</div>
+<p>The images are now identified, downloaded, and saved, loaded as a multiband <code>SpatRast</code> object and cropped to the AOI.</p>
+</section>
+<section id="data-visualization" class="level1">
+<h1>Data Visualization</h1>
+<p>Multiple visualization pallets are created below:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># True Color</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plotRGB</span>(l8_crop, <span class="at">r =</span> <span class="dv">4</span>, <span class="at">g =</span> <span class="dv">3</span>, <span class="at">b =</span> <span class="dv">2</span>, <span class="at">stretch =</span> <span class="st">"hist"</span>, </span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>        <span class="at">main =</span> <span class="st">"Natural Color"</span>, <span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-10-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Color infared</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plotRGB</span>(l8_crop, <span class="at">r =</span> <span class="dv">5</span>, <span class="at">g =</span> <span class="dv">4</span>, <span class="at">b =</span> <span class="dv">3</span>, <span class="at">stretch =</span> <span class="st">"hist"</span>, </span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>        <span class="at">main =</span> <span class="st">"Color Infared"</span>, <span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-10-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># False color water focus </span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plotRGB</span>(l8_crop, <span class="at">r =</span> <span class="dv">5</span>, <span class="at">g =</span> <span class="dv">6</span>, <span class="at">b =</span> <span class="dv">4</span>, <span class="at">stretch =</span> <span class="st">"hist"</span>, </span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>        <span class="at">main =</span> <span class="st">"False Color Water"</span>, <span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-10-3.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># SWIR NIR and Red plot</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plotRGB</span>(l8_crop, <span class="at">r =</span> <span class="dv">6</span>, <span class="at">g =</span> <span class="dv">5</span>, <span class="at">b =</span> <span class="dv">4</span>, <span class="at">stretch =</span> <span class="st">"hist"</span>, </span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>        <span class="at">main =</span> <span class="st">"SWIR, NIR, R"</span>, <span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-10-4.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>The true color image gives us an idea of the setting, land cover types, and a general reference point. Color infrared shows us vegetation, with higher productivity vegetation appearing brighter. The false color water highlights water as a darker value since water absorbs most NIR light. The last plot aims to highlight water and show any differences in turbidity in the water.</p>
+</section>
+<section id="q3" class="level1">
+<h1>Indices and Thresholds</h1>
+<p>Accurate assessment of surface water features like flooding has been made possible by remote sensing technology. Index methods are commonly used for surface water estimation using a threshold value. This part looks at five unique thresholding methods for delineating surface water features from different combinations of Landsat bands:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: center;"><strong>Name</strong></th>
+<th style="text-align: center;"><strong>Abbreviation</strong></th>
+<th style="text-align: center;"><strong>Formula</strong></th>
+<th style="text-align: center;"><strong>Water Threshold</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: center;">Normalized difference vegetation index</td>
+<td style="text-align: center;">NDVI</td>
+<td style="text-align: center;"><span class="math display">\[ \frac{NIR - Red}{NIR + Red} \]</span></td>
+<td style="text-align: center;">Cells less then 0</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">Normalized Difference Water Index</td>
+<td style="text-align: center;">NDWI</td>
+<td style="text-align: center;"><span class="math display">\[ \frac{Green - NIR}{Green + NIR} \]</span></td>
+<td style="text-align: center;">Cells greater then 0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">modified</td>
+<td style="text-align: center;"></td>
+<td style="text-align: center;"></td>
+<td style="text-align: center;"></td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">normalized difference water index</td>
+<td style="text-align: center;">MNDWI</td>
+<td style="text-align: center;"><span class="math display">\[ \frac{Green - SWIR1}{Green + SWIR1} \]</span></td>
+<td style="text-align: center;">Cells greater then 0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">water ratio index</td>
+<td style="text-align: center;">WRI</td>
+<td style="text-align: center;"><span class="math display">\[ \frac{Green + Red}{NIR + SWIR1} \]</span></td>
+<td style="text-align: center;">Cells greater then 1</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">simple water index</td>
+<td style="text-align: center;">SWI</td>
+<td style="text-align: center;"><span class="math display">\[ \frac{1}{\sqrt{Blue - SWIR1}} \]</span></td>
+<td style="text-align: center;">Cells less then 5</td>
+</tr>
+</tbody>
+</table>
+<section id="raster-algebra" class="level2">
+<h2 class="anchored" data-anchor-id="raster-algebra">Raster Algebra</h2>
+<p>Five new rasters are created using the formulas for NDVI, NDWI, MNDWI, WRI, and SWI, combined into a stacked object with <code>c()</code>, named, and plotted with a blue-white-red palette.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>index_names <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"NDVI"</span>, <span class="st">"NDWI"</span>, <span class="st">"MNDWI"</span>, <span class="st">"WRI"</span>, <span class="st">"SWI"</span>)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>ndvi <span class="ot">&lt;-</span> (l8_crop<span class="sc">$</span>nir08 <span class="sc">-</span> l8_crop<span class="sc">$</span>red) <span class="sc">/</span> (l8_crop<span class="sc">$</span>nir08 <span class="sc">+</span> l8_crop<span class="sc">$</span>red)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>ndwi <span class="ot">&lt;-</span> (l8_crop<span class="sc">$</span>green <span class="sc">-</span> l8_crop<span class="sc">$</span>nir08) <span class="sc">/</span> (l8_crop<span class="sc">$</span>green <span class="sc">+</span> l8_crop<span class="sc">$</span>nir08)</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>mndwi <span class="ot">&lt;-</span> (l8_crop<span class="sc">$</span>green <span class="sc">-</span> l8_crop<span class="sc">$</span>swir16) <span class="sc">/</span> (l8_crop<span class="sc">$</span>green <span class="sc">+</span> l8_crop<span class="sc">$</span>swir16)</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>wri <span class="ot">&lt;-</span> (l8_crop<span class="sc">$</span>green <span class="sc">+</span> l8_crop<span class="sc">$</span>red) <span class="sc">/</span> (l8_crop<span class="sc">$</span>nir08 <span class="sc">+</span> l8_crop<span class="sc">$</span>swir16)</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>swi <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">/</span> <span class="fu">sqrt</span>(l8_crop<span class="sc">$</span>blue <span class="sc">-</span> l8_crop<span class="sc">$</span>swir16)</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>index_rast <span class="ot">&lt;-</span> <span class="fu">c</span>(ndvi, ndwi, mndwi, wri, swi) <span class="sc">%&gt;%</span></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setNames</span>(index_names)</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(index_rast, <span class="at">col =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(<span class="st">"blue"</span>, <span class="st">"white"</span>, <span class="st">"red"</span>))(<span class="dv">256</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-11-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>The five images all highlight water, but to different degrees and with different sensitivities to water. MNDWI appears to be the most sensitive at detecting surface water while SWI is the most restrictive and appears to only detect deeper water bodies.</p>
+</section>
+<section id="raster-thresholding" class="level2">
+<h2 class="anchored" data-anchor-id="raster-thresholding">Raster Thresholding</h2>
+<p>The flood extents are extracted from each raster using the thresholds defined in the table above. The <code>app</code> function applies a custom formula for each calculated field that applies the threshold so that flooded cells are 1 and non-flooded cells are 0.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>ndvi_thresh <span class="ot">&lt;-</span> <span class="fu">app</span>(ndvi, <span class="at">fun =</span> <span class="cf">function</span>(x) <span class="fu">ifelse</span>(x <span class="sc">&lt;</span> <span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">0</span>))</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>ndwi_thresh <span class="ot">&lt;-</span> <span class="fu">app</span>(ndwi, <span class="at">fun =</span> <span class="cf">function</span>(x) <span class="fu">ifelse</span>(x <span class="sc">&gt;</span> <span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">0</span>))</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>mndwi_thresh <span class="ot">&lt;-</span> <span class="fu">app</span>(mndwi, <span class="at">fun =</span> <span class="cf">function</span>(x) <span class="fu">ifelse</span>(x <span class="sc">&gt;</span> <span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">0</span>))</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>wri_thresh <span class="ot">&lt;-</span> <span class="fu">app</span>(wri, <span class="at">fun =</span> <span class="cf">function</span>(x) <span class="fu">ifelse</span>(x <span class="sc">&gt;</span> <span class="dv">1</span>, <span class="dv">1</span>, <span class="dv">0</span>))</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>swi_thresh <span class="ot">&lt;-</span> <span class="fu">app</span>(swi, <span class="at">fun =</span> <span class="cf">function</span>(x) <span class="fu">ifelse</span>(x <span class="sc">&lt;</span> <span class="dv">5</span>, <span class="dv">1</span>, <span class="dv">0</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>The <code>app</code> function applies a function to each cell of the raster, and <code>ifelse</code> sets the values based on the threshold. The five binary rasters are stacked with <code>c()</code>, named with meaningful descriptions, passed through one more classifier to set all NA values to zero, and plotted so floods are blue and background is white.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>water_thresh <span class="ot">&lt;-</span> <span class="fu">c</span>(ndvi_thresh, ndwi_thresh, mndwi_thresh, wri_thresh, swi_thresh) <span class="sc">%&gt;%</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setNames</span>(<span class="fu">c</span>(<span class="st">"ndvi water"</span>, </span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>             <span class="st">"ndwi water"</span>, </span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>             <span class="st">"mndwi water"</span>, </span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>             <span class="st">"wri water"</span>, </span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>             <span class="st">"swi water"</span>)) <span class="sc">%&gt;%</span> </span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">app</span>(<span class="at">fun =</span> <span class="cf">function</span>(x) <span class="fu">ifelse</span>(<span class="fu">is.na</span>(x), <span class="dv">0</span>, x))</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(water_thresh, <span class="at">col =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(<span class="st">"white"</span>, <span class="st">"blue"</span>))(<span class="dv">256</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-13-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Similarly to the non-threshold plots, MNDWI appears to have the highest sensitivity to water at the given threshold while SWI has the lowest sensitivity. Overall, all classifications are showing the same pattern in inundation, but there may be differences that occur from the ability to detect water at a given depth and threshold.</p>
+</section>
+</section>
+<section id="classification" class="level1">
+<h1>Classification</h1>
+<p>An alternative way to identify similar features in a continuous field is through supervised or unsupervised classification. Supervised classification groups cells based on user-supplied “truth” locations. Since flood events are fast-occurring there are rarely truth points for a live event, so developers instead rely on libraries of flood spectral signatures. Unsupervised classification finds statistically significant groupings within the data, where the user specifies the number of classes and the categorization is created based on the patterns in the data. This part uses a simple k-means algorithm to group raster cells with similar spectral properties.</p>
+<p>To produce a consistent and reproducible result from a random process in R, a seed is set with <code>set.seed</code>.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">111</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>The values are extracted from the 6-band raster stack with <code>values</code>, and the dimensions checked with <code>dim</code>. Each individual value in the matrix is now represented as a vector across the 6 bands.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>values <span class="ot">&lt;-</span> <span class="fu">values</span>(l8_crop)</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="fu">dim</span>(values)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 12192     6</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dim</span>(l8_crop)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 127  96   6</code></pre>
+</div>
+</div>
+<p>NA values are removed with <code>na.omit</code> for safety.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>values <span class="ot">&lt;-</span> <span class="fu">na.omit</span>(values)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>The k-means clustering algorithm from the <code>stats</code> package clusters the extracted raster data into a specified number of clusters <code>k</code> (centers), starting with 12. The output is a list of components, one of which is <code>cluster</code>, a vector of integers from 1 to <code>k</code> indicating the cluster to which each row was allocated.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>    <span class="fu">library</span>(stats)</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>    k_12 <span class="ot">&lt;-</span> <span class="fu">kmeans</span>(values, <span class="at">centers =</span> <span class="dv">12</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>A new raster object is created by copying one of the original bands, and its values are set to the cluster vector from the k-means output. This is repeated with both 12 and 4 clusters to see how the map changes.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>k_ras <span class="ot">&lt;-</span> l8_crop<span class="sc">$</span>nir08</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a><span class="fu">values</span>(k_ras) <span class="ot">&lt;-</span> k_12<span class="sc">$</span>cluster</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(k_ras, <span class="at">col =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(<span class="st">"white"</span>, <span class="st">"blue"</span>, <span class="st">"red"</span>))(<span class="dv">256</span>), <span class="at">main =</span> <span class="st">"K-means with 12 Clusters"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-18-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="co"># K means with 4 clusters </span></span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>k_4 <span class="ot">&lt;-</span> <span class="fu">kmeans</span>(values, <span class="at">centers =</span> <span class="dv">4</span>)</span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>k_4_ras <span class="ot">&lt;-</span> l8_crop<span class="sc">$</span>nir08</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a><span class="fu">values</span>(k_4_ras) <span class="ot">&lt;-</span> k_4<span class="sc">$</span>cluster</span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(k_4_ras, <span class="at">col =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(<span class="st">"white"</span>, <span class="st">"blue"</span>, <span class="st">"red"</span>))(<span class="dv">256</span>), <span class="at">main =</span> <span class="st">"K-means with 4 Clusters"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-18-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>The result is a categorical raster with categories 1 to k, but the category that corresponds to flood water is unknown. To identify the flood category programmatically, a contingency <code>table</code> crosses the values of one binary flood raster with the values of the kmeans raster. <code>table</code> counts the number of times each combination of factor levels occurs, quantifying how many cells with value 1 align with each of the k classes and how many cells with value 0 align with each class. Passing the binary flood values as the first argument makes the unique values (0, 1) the rows, sorted so the flooded cells are the second row. <code>which.max()</code> returns the index of the maximum value in a vector, which combined identifies the cluster that coincides with the most flooded cells. <code>app</code> then extracts that flood mask in the same way as the thresholding above, and the result is added to the flood raster stack with <code>c()</code>.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>water_table <span class="ot">&lt;-</span> <span class="fu">table</span>(<span class="fu">values</span>(water_thresh<span class="sc">$</span><span class="st">`</span><span class="at">ndvi water</span><span class="st">`</span>), <span class="fu">values</span>(k_ras))</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>water_table</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>   
+       1    2    3    4    5    6    7    8    9   10   11   12
+  0  711  130 1087  721 1253  401 1997  775 1507 1188 1049  447
+  1    0    0    0    0    5    6    0    0    0    0    0  915</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>water_value <span class="ot">&lt;-</span> <span class="fu">which.max</span>(water_table[<span class="dv">2</span>,])</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>water_value</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>12 
+12 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>k_water <span class="ot">&lt;-</span> <span class="fu">app</span>(k_ras, <span class="at">fun =</span> <span class="cf">function</span>(x) <span class="fu">ifelse</span>(x <span class="sc">==</span> water_value, <span class="dv">1</span>, <span class="dv">0</span>))</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(k_water, <span class="at">col =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(<span class="st">"white"</span>, <span class="st">"blue"</span>))(<span class="dv">256</span>), <span class="at">main =</span> <span class="st">"K-means Water Classification"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-19-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>water_thresh<span class="sc">$</span><span class="st">`</span><span class="at">k-means water</span><span class="st">`</span> <span class="ot">&lt;-</span> k_water</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(water_thresh, <span class="at">col =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(<span class="st">"white"</span>, <span class="st">"blue"</span>))(<span class="dv">256</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-19-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="comparing-the-methods" class="level1">
+<h1>Comparing the Methods</h1>
+<p>The flood raster has now been created using six different methods, and the last goal is to identify how they compare. First, the total area of the flooded cells in each image is calculated. <code>global</code> determines the sum of each layer, and since flooded cells have a value of 1, the sum of an entire band is equivalent to the number of flooded cells, which the cell resolution converts to a flooded area.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>counts <span class="ot">&lt;-</span> <span class="fu">global</span>(water_thresh, <span class="st">"sum"</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a>counts<span class="sc">$</span>area_km2 <span class="ot">&lt;-</span> (counts<span class="sc">$</span>sum <span class="sc">*</span> <span class="dv">900</span>) <span class="sc">/</span> <span class="dv">1000000</span></span>
+<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-5"><a href="#cb34-5" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(counts)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>               sum area_km2
+ndvi water     926   0.8334
+ndwi water     806   0.7254
+mndwi water   1335   1.2015
+wri water     1062   0.9558
+swi water      869   0.7821
+k-means water 1362   1.2258</code></pre>
+</div>
+</div>
+<p>Second, the uncertainty in the classifications is visualized by summing the entire stack with <code>app</code>. The higher the count in each pixel, the more certain the flooded state: a cell value of 6 means every method identified the cell as flooded, while a value of 2 means two methods did. The uncertainty map uses the blues9 palette.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>water_uncert <span class="ot">&lt;-</span> <span class="fu">app</span>(water_thresh, sum, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(water_uncert, <span class="at">col =</span> blues9, <span class="at">main =</span> <span class="st">"Water Classification Uncertainty"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="remotesensing_flood_files/figure-html/unnamed-chunk-21-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Third, the summed raster is copied as a new layer with all 0 values set to NA, then mapped interactively with <code>mapview</code> so pixel-level values are displayed on the map.</p>
+<p>The uncertainty raster identifies how many times a classification method identified a cell as water, so if 5 methods identified water then the pixel value will be five, since we summed a stack of binary values. This is why some cell values are not even numbers.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>uncert_ras <span class="ot">&lt;-</span> water_uncert</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a><span class="fu">values</span>(uncert_ras) <span class="ot">&lt;-</span> <span class="fu">ifelse</span>(<span class="fu">values</span>(uncert_ras) <span class="sc">==</span> <span class="dv">0</span>, <span class="cn">NA</span>, <span class="fu">values</span>(uncert_ras))</span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a><span class="fu">mapview</span>(uncert_ras, <span class="at">col.regions =</span> blues9, <span class="at">layer.name =</span> <span class="st">"Water Uncertainty"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="leaflet html-widget html-fill-item" id="htmlwidget-368c521ccb268b3d7f43" style="width:100%;height:464px;"></div>
+<script type="application/json" data-for="htmlwidget-368c521ccb268b3d7f43">{"x":{"options":{"minZoom":1,"maxZoom":52,"crs":{"crsClass":"L.CRS.EPSG3857","code":null,"proj4def":null,"projectedBounds":null,"options":{}},"preferCanvas":false,"bounceAtZoomLimits":false,"maxBounds":[[[-90,-370]],[[90,370]]]},"calls":[{"method":"addProviderTiles","args":["CartoDB.Positron","CartoDB.Positron","CartoDB.Positron",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addProviderTiles","args":["CartoDB.DarkMatter","CartoDB.DarkMatter","CartoDB.DarkMatter",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addProviderTiles","args":["OpenStreetMap","OpenStreetMap","OpenStreetMap",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addProviderTiles","args":["Esri.WorldImagery","Esri.WorldImagery","Esri.WorldImagery",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addProviderTiles","args":["OpenTopoMap","OpenTopoMap","OpenTopoMap",{"errorTileUrl":"","noWrap":false,"detectRetina":false,"pane":"tilePane"}]},{"method":"addRasterImage","args":["data:image/png;base64,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",[[42.08247389784549,-91.81355686180419],[42.04768726196073,-91.77795931783035]],"Water Uncertainty","Water Uncertainty",{"tileSize":256,"zIndex":1,"minZoom":0,"opacity":0.8}]},{"method":"removeLayersControl","args":[]},{"method":"addLayersControl","args":[["CartoDB.Positron","CartoDB.DarkMatter","OpenStreetMap","Esri.WorldImagery","OpenTopoMap"],"Water Uncertainty",{"collapsed":true,"autoZIndex":true,"position":"topleft"}]},{"method":"addControl","args":["","topright","imageValues-Water Uncertainty","info legend "]},{"method":"addImageQuery","args":["Water Uncertainty",[-91.81355686180419,42.04742080340203,-91.77787781924566,42.08247389784549],"mousemove",7,"Layer"]},{"method":"addLegend","args":[{"colors":["#F7FBFF , #F7FBFF 0%, #D9E8F5 20%, #B6D4E9 40%, #81B9DA 60%, #4B98C9 80%, #2171B5 100%, #2171B5 "],"labels":["1","2","3","4","5","6"],"na_color":"#BEBEBE","na_label":"NA","opacity":1,"position":"topright","type":"numeric","title":"Water Uncertainty","extra":{"p_1":0,"p_n":1},"layerId":null,"className":"info legend","group":"Water Uncertainty"}]},{"method":"addScaleBar","args":[{"maxWidth":100,"metric":true,"imperial":true,"updateWhenIdle":true,"position":"bottomleft"}]},{"method":"addHomeButton","args":[-91.8135568618042,42.04780127070886,-91.77810544042319,42.0824738978455,true,"Water_Uncertainty","Zoom to Water_Uncertainty","<strong> Water_Uncertainty <\/strong>","bottomright"]}],"limits":{"lat":[42.04768726196073,42.08247389784549],"lng":[-91.81355686180419,-91.77795931783035]}},"evals":[],"jsHooks":{"render":[{"code":"function(el, x, data) {\n  return (\n      function(el, x, data) {\n      // get the leaflet map\n      var map = this; //HTMLWidgets.find('#' + el.id);\n      // we need a new div element because we have to handle\n      // the mouseover output separately\n      // debugger;\n      function addElement () {\n      // generate new div Element\n      var newDiv = $(document.createElement('div'));\n      // append at end of leaflet htmlwidget container\n      $(el).append(newDiv);\n      //provide ID and style\n      newDiv.addClass('lnlt');\n      newDiv.css({\"position\":\"relative\",\"bottomleft\":\"0px\",\"background-color\":\"rgba(255, 255, 255, 0.7)\",\"box-shadow\":\"0 0 2px #bbb\",\"background-clip\":\"padding-box\",\"margin\":\"0\",\"padding-left\":\"5px\",\"padding-right\":\"5px\",\"color\":\"#333\",\"font-size\":\"9px\",\"font-family\":\"\\\"Helvetica Neue\\\", Arial, Helvetica, sans-serif\",\"text-align\":\"left\",\"z-index\":\"700\"});\n      return newDiv;\n      }\n\n\n      // check for already existing lnlt class to not duplicate\n      var lnlt = $(el).find('.lnlt');\n\n      if(!lnlt.length) {\n      lnlt = addElement();\n\n      // grab the special div we generated in the beginning\n      // and put the mousmove output there\n\n      map.on('mousemove', function (e) {\n      if (e.originalEvent.ctrlKey) {\n      if (document.querySelector('.lnlt') === null) lnlt = addElement();\n      lnlt.text(\n                           ' lon: ' + (e.latlng.lng).toFixed(5) +\n                           ' | lat: ' + (e.latlng.lat).toFixed(5) +\n                           ' | zoom: ' + map.getZoom() +\n                           ' | x: ' + L.CRS.EPSG3857.project(e.latlng).x.toFixed(0) +\n                           ' | y: ' + L.CRS.EPSG3857.project(e.latlng).y.toFixed(0) +\n                           ' | epsg: 3857 ' +\n                           ' | proj4: +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +no_defs ');\n      } else {\n      if (document.querySelector('.lnlt') === null) lnlt = addElement();\n      lnlt.text(\n                      ' lon: ' + (e.latlng.lng).toFixed(5) +\n                      ' | lat: ' + (e.latlng.lat).toFixed(5) +\n                      ' | zoom: ' + map.getZoom() + ' ');\n      }\n      });\n\n      // remove the lnlt div when mouse leaves map\n      map.on('mouseout', function (e) {\n      var strip = document.querySelector('.lnlt');\n      if( strip !==null) strip.remove();\n      });\n\n      };\n\n      //$(el).keypress(67, function(e) {\n      map.on('preclick', function(e) {\n      if (e.originalEvent.ctrlKey) {\n      if (document.querySelector('.lnlt') === null) lnlt = addElement();\n      lnlt.text(\n                      ' lon: ' + (e.latlng.lng).toFixed(5) +\n                      ' | lat: ' + (e.latlng.lat).toFixed(5) +\n                      ' | zoom: ' + map.getZoom() + ' ');\n      var txt = document.querySelector('.lnlt').textContent;\n      console.log(txt);\n      //txt.innerText.focus();\n      //txt.select();\n      setClipboardText('\"' + txt + '\"');\n      }\n      });\n\n      }\n      ).call(this.getMap(), el, x, data);\n}","data":null},{"code":"function(el, x, data) {\n  return (function(el,x,data){\n           var map = this;\n\n           map.on('keypress', function(e) {\n               console.log(e.originalEvent.code);\n               var key = e.originalEvent.code;\n               if (key === 'KeyE') {\n                   var bb = this.getBounds();\n                   var txt = JSON.stringify(bb);\n                   console.log(txt);\n\n                   setClipboardText('\\'' + txt + '\\'');\n               }\n           })\n        }).call(this.getMap(), el, x, data);\n}","data":null}]}}</script>
+</div>
+</div>
+<p>This completes a full flood analysis from data acquisition through evaluation. This kind of work goes on regularly and is part of several national efforts (NOAA, USGS, FirstStreet, FEMA) to generate flood inundation libraries that contribute to better extraction and classification of realtime flood events, resource allocation during events, and damage assessments afterward. Landsat imagery was used here, but the same process could be implemented on drone footage, MODIS data, or other private satellite imagery.</p>
+<p>The evaluation was based purely on the raster data structure and on conceptualizing rasters as vectors of data with dimensional structure. Simple mathematical operators (+, /, -) were applied to the raster bands, along with a kmeans clustering algorithm to the data matrix of the multiband raster, all within roughly 100 lines of code.</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
